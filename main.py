@@ -78,13 +78,16 @@ END AS fresh_flag
     5. Use event_type from temp.marketing_mis table to get the activity performed type of the leads
     6. use event_rank_registraion column to get the rank of activity performed by the leads  where event_rank_registraion = 1 then it means it is the first activity performed by the lead
     7. to calculate l2p formula is (payments_done/leads_consumed)*100
-    use payment_done=1 for the payments_done and leads_consumed is consumed_flag=1 
+    use count(distinct case when first_payment_done=1 then email end) as payments
+    use count(distinct case when consumed_flag=1 then email end) as consumed 
     8. always use the distinct keyword in the query 
     9. whenever batch is asked use batch column in temp.marketing_mis table to get the batch of the leads
     10. always remember to use distinct keyword in case statements 
     11. always use email column in the query to do any calculation
     12. AVOID USING CASE STATEMENTS IN CTE INSTEAD USE IT IN MAIN QUERY  
     13. REMEMBER THERE CAN BE MULTIPLE ROWS FOR SAME EMAIL AS A USER CAN PERFORM MULTIPLE ACTIVITIES ON THE WEBSITE SO YOU HAVE TO USE DISTINCT IN CTE TOO
+    14. count(distinct case when eligible_flag=1 then email end) as eligible
+    15. count(distinct email) as gross
     """
 
     
