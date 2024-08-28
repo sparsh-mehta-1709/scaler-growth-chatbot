@@ -1,1 +1,1 @@
-# scaler-growth-chatbot
+# scaler-sql-chatbot
