@@ -17,7 +17,7 @@ def connect_to_db():
         conn = psycopg2.connect(**db_params)
         return conn
     except psycopg2.Error as e:
-        print(f"Error connecting to the database: {e}")
+        st.error(f"Error connecting to the database: {e}")
         return None
 
 def execute_query(conn, query):
@@ -28,8 +28,20 @@ def execute_query(conn, query):
             results = cur.fetchall()
             return results, cur
     except psycopg2.Error as e:
-        print(f"Error executing query: {e}")
+        st.error(f"Error executing query: {e}")
         return None, None
+    finally:
+        # Always reset the connection after executing a query
+        conn.rollback()
+
+def reset_connection():
+    """Reset the database connection."""
+    if 'conn' in st.session_state:
+        try:
+            st.session_state.conn.close()
+        except:
+            pass
+    st.session_state.conn = connect_to_db()
 
 def get_gpt4_response(prompt, conversation_history):
     try:
@@ -45,7 +57,7 @@ def get_gpt4_response(prompt, conversation_history):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Error with OpenAI API: {e}")
+        st.error(f"Error with OpenAI API: {e}")
         return None
 
 def clean_sql_query(sql_query):
@@ -100,7 +112,6 @@ END AS fresh_flag
     20. Use program_type to know in which program user is interested or landed from
     """
 
-
     prompt = f"""Given the following reference logic and conversation history:
 
 Reference Logic:
@@ -154,8 +165,8 @@ def main():
     st.write("Ask questions about mentees, courses, lessons, companies, and more.")
 
     # Initialize connection
-    if 'conn' not in st.session_state:
-        st.session_state.conn = connect_to_db()
+    if 'conn' not in st.session_state or st.session_state.conn is None:
+        reset_connection()
 
     # Check if connection is successful
     if not st.session_state.conn:
@@ -190,6 +201,11 @@ def main():
                     conversation_history.append({"role": "assistant", "content": generated_sql})
 
                     results, cur = execute_query(st.session_state.conn, generated_sql)
+
+                    if results is None and cur is None:
+                        st.error("An error occurred while executing the query. Resetting the connection...")
+                        reset_connection()
+                        results, cur = execute_query(st.session_state.conn, generated_sql)
 
                     if results and cur:
                         st.subheader("Query results:")
@@ -256,6 +272,11 @@ def main():
                         conversation_history.append({"role": "assistant", "content": new_generated_sql})
 
                         new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
+
+                        if new_results is None and new_cur is None:
+                            st.error("An error occurred while executing the query. Resetting the connection...")
+                            reset_connection()
+                            new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
 
                         if new_results and new_cur:
                             st.subheader("New Query Results:")
