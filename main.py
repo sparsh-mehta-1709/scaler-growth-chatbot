@@ -88,6 +88,15 @@ END AS fresh_flag
     13. REMEMBER THERE CAN BE MULTIPLE ROWS FOR SAME EMAIL AS A USER CAN PERFORM MULTIPLE ACTIVITIES ON THE WEBSITE SO YOU HAVE TO USE DISTINCT IN CTE TOO
     14. count(distinct case when eligible_flag=1 then email end) as eligible
     15. count(distinct email) as gross
+    16. used attended column to get whether the lead has attended or not attended the event
+    17. The values in event_type are 79_ScalerTopics, others, 29_Career, 11_CallBack, 3_MC, 2_Alum_Session, 99_Non_Mkt 6_Bootcamp 1_Free_Product 4_FRLS 14_Referral
+    where 3_MC means masterclass 79_ScalerTopics means Scaler Topics 29_Career means Career Roadmap Tool 11_CallBack means requested callback 2_Alum_Session means Alumni Session 99_Non_Mkt means non marketing 
+    6_Bootcamp means Bootcamp 1_Free_Product means Free Live Class 4_FRLS means Free Recorded live Session 14_Referral means Referral. 
+    Remember these all event_type are interaction points on website also known as IP 
+    18. whenever the event_type is masterclass use event_id of that event_type and connect with id of scaler_ebdb_events table to get the event name using title column in scaler_ebdb_events table and also there is start_time and end_time in events table to get date of masterclass
+    for all other event_type you can use event_name in temp.marketing_mis
+    19. Use landing_page_url column in temp.marketing_mis to get the source url from where user came 
+    20. Use program_type to know in which program user is interested or landed from
     """
 
     
