@@ -110,6 +110,7 @@ END AS fresh_flag
     for all other event_type you can use event_name in temp.marketing_mis
     19. Use landing_page_url column in temp.marketing_mis to get the source url from where user came 
     20. Use program_type to know in which program user is interested or landed from
+    23. Whenever any condition is applied dont apply that in left join always apply condition in where clause
     """
 
     prompt = f"""Given the following reference logic and conversation history:
