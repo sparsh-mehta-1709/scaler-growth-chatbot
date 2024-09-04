@@ -182,6 +182,7 @@ END AS fresh_flag
             else 'other'
         end as final_source 
         using utm_source column in temp.marketing_mis to get the final source and use event_rank_registraion = 1 when need to get the final_source
+        Calculate this within the cte itself.
         25. Use CASE
     WHEN final_source IN ('organic', 'influencer', 'brandedcontent', 'brandcampaign', 'dv360', 'publisher-ideal') THEN '1.Organic'
     WHEN final_source IN ('facebook', 'googleyoutube', 'googlesearch', 'googlediscovery', 'linkedin', 'googlepmc', 'brandsearch', 'bing', 'googledisplay', 'googleuac', 'columbia', 'quora', 'taboola', 'reddit', 'yahoo', 'affiliate', 'rtbhouse', 'googleuac') THEN '2.Paid'
