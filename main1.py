@@ -189,6 +189,7 @@ END AS fresh_flag
     WHEN final_source IN ('midfunnel', 'interviewbit', 'community', 'organic_social', 'seo', 'other', 'referral', 'ib-midfunnel', 'topics', 'topics-midfunnel') THEN '3.Non-Paid'
     ELSE '4.Other'
 END AS Channels this for the channels column 
+26. Whenever batch is required keep it as a first column. 
     """
 
     prompt = f"""Given the following reference logic and conversation history:
