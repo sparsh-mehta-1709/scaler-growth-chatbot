@@ -306,7 +306,8 @@ SELECT *
 		END AS test_roll_out_status
 FROM cte
 JOIN cte2 ON cte2.batch = cte.sales_batch
- 
+
+ALWAYS USE BDA_EMAIL WHENEVER BDA INFORMATION IS NEEDED, ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
     """
 
     prompt = f"""Given the following reference logic and conversation history:
