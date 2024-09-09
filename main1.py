@@ -309,6 +309,7 @@ JOIN cte2 ON cte2.batch = cte.sales_batch
 
 ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
 WHEN THE activitydate<='2024-08-11' then use interviewbit_mxradon_activities when activitydate>='2024-08-12' then use ls47349_activities table
+MAKE TWO CTE FOR BOTH AND THEN USE UNION AS BOTH HAVE SAME COLUMN NAMES
 28. FOR NON MARKETING LEADS USE THIS QUERY (temp.non_marketing_mis) ELSE USE temp.marketing_mis
 select batch,email as lead_email, 
 program_type as program,
