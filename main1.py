@@ -53,7 +53,7 @@ def get_gpt4_response(prompt, conversation_history):
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=messages
+            messages=messages,temperature=0.5
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
