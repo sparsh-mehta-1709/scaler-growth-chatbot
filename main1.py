@@ -71,7 +71,7 @@ def generate_sql_query(user_input, conversation_history):
     reference_logic = """
     Logic from reference query:
     1. Use a CTE (Common Table Expression) named 'cte' for complex calculations.
-    2. use temp.marketing_mis table to get the data of leads those who did any activity on the website of scaler 
+    2. use temp.marketing_mis table to get the data of marketing leads those who did any activity on the website of scaler 
     3. use scaler_ebdb_users table to get the name and email of the leads who are in the temp.marketing_mis table
     4. case when eligible_flag=0 then 'Not Eligible' when eligible_flag=1 then 'Eligible' end as eligible_flag,
     case when assigned_flag=0 then 'Not Assigned' when assigned_flag=1 then 'Assigned' end as assigned_flag,
@@ -308,6 +308,18 @@ FROM cte
 JOIN cte2 ON cte2.batch = cte.sales_batch
 
 ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
+28. FOR NON MARKETING LEADS USE THIS QUERY (temp.non_marketing_mis) ELSE USE temp.marketing_mis
+select batch,email as lead_email, 
+program_type as program,
+case when effective_flag=1 then 'effective' else 'not effective' end as effective_flag,
+case when assigned_flag=1 then 'assigned' else 'not assigned' end as assigned_flag,
+case when consumed_flag=1 then 'consumed' else 'not consumed' end as consumed_flag,
+case when test_start=1 then 'Test Started' else 'Test Not Started' end as test_start_flag,
+case when test_pass=1 then 'Test Passes' else 'Test Not Passed' end as test_passed_flag,
+case when payment_flag=1 then 'Paid' else 'Not Paid' end as payment_flag,
+case when payment_flag=1 then paying_for_type end as paid_for_program,
+prospectstage as current_stage
+from temp.non_marketing_mis
     """
 
     prompt = f"""Given the following reference logic and conversation history:
