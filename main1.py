@@ -319,8 +319,9 @@ case when payment_flag=1 then 'Paid' else 'Not Paid' end as payment_flag,
 case when payment_flag=1 then paying_for_type end as paid_for_program,
 prospectstage as current_stage
 from temp.non_marketing_mis
-    """
 28. For temp.marketing_mis use case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
+    """
+
     prompt = f"""Given the following reference logic and conversation history:
 
 Reference Logic:
