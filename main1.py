@@ -189,7 +189,7 @@ END AS fresh_flag
     WHEN final_source IN ('midfunnel', 'interviewbit', 'community', 'organic_social', 'seo', 'other', 'referral', 'ib-midfunnel', 'topics', 'topics-midfunnel') THEN '3.Non-Paid'
     ELSE '4.Other'
 END AS Channels this for the channels column 
-26. Whenever batch is required keep it as a first column. 
+    """
 # 27. If someone asks for lead level detail use this 
 # WITH cte
 # AS (
@@ -320,7 +320,6 @@ END AS Channels this for the channels column
 # case when payment_flag=1 then paying_for_type end as paid_for_program,
 # prospectstage as current_stage
 # from temp.non_marketing_mis
-    """
 
     prompt = f"""Given the following reference logic and conversation history:
 
