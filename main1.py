@@ -190,136 +190,136 @@ END AS fresh_flag
     ELSE '4.Other'
 END AS Channels this for the channels column 
 26. Whenever batch is required keep it as a first column. 
-27. If someone asks for lead level detail use this 
-WITH cte
-AS (
-	SELECT sw."sales batch" AS sales_batch
-		,sw."Marketing Batch" AS marketing_batch
-		,DATE (a.createdon + interval '330 minutes') activitydate
-		,mx_custom_1
-		,lower(prospectemailaddress) AS lead_email
-		,CASE 
-			WHEN (lower(mx_custom_1) LIKE '%dev%')
-				THEN 'devops'
-			WHEN (
-					(lower(mx_custom_1) LIKE '%data%')
-					OR (lower(mx_custom_1) LIKE '%dsml%')
-					)
-				THEN 'ds'
-			WHEN (lower(mx_custom_1) LIKE '%acad%')
-				THEN 'acad'
-			ELSE 'none'
-			END AS course
-		,CASE 
-			WHEN a.activityevent IN (487)
-				THEN lower(mx_custom_1)
-			WHEN a.activityevent IN (389)
-				THEN lower(REGEXP_SUBSTR(mx_custom_7, '[A-Za-z0-9._%%+-]+@scaler\\.com'))
-			ELSE coalesce(lower(u.emailaddress))
-			END AS bda_email
-		,a.activityevent
-		,a.prospectid prospectid
-		,mx_custom_3
-		,mx_custom_11
-		,STATUS
-		,rank() OVER (
-			PARTITION BY a.prospectid
-			,a.activityevent ORDER BY a.createdon
-			) rnk
-		,RANK() OVER (
-			PARTITION BY a.prospectid
-			,a.activityevent
-			,sw."Sales Batch" ORDER BY DATE (a.createdon + interval '330 minutes') ASC
-			) AS rnk2
-	FROM interviewbit_mxradon_activities a
-	LEFT JOIN interviewbit_mxradon_prospectactivity_extensionbase ab ON ab.prospectactivityextensionid = a.prospectactivityid
-	LEFT JOIN (
-		SELECT userid
-			,replace(replace(emailaddress, '.54288.obsolete', ''), '.47349.obsolete', '') emailaddress
-		FROM interviewbit_mxradon_users
-		) u ON coalesce(ab.OWNER, ab.createdby) = u.userid
-	LEFT JOIN scaler_ebdb_sales_week sw ON sw.DATE = DATE (a.createdon + interval '330 minutes')
-	WHERE DATE (a.createdon + interval '330 minutes') >= TO_DATE('30-08-2023', 'DD-MM-YYYY')
-		AND a.activityevent IN (
-			483
-			,490
-			,493
-			,489
-			,456
-			,499
-			,455
-			,457
-			,234
-			,453
-			,309
-			,389
-			,484
-			,493
-			,231
-			,232
-			,487
-			,464
-			,498
-			,486
-			,532
-			,488
-			,504
-			,528
-			,529
-			)
-	)
-	,cte2
-AS (
-	SELECT "Sales Batch" AS batch
-		,"Marketing Batch"
-		,AVG("Sorting") AS sort
-	FROM scaler_ebdb_sales_week
-	GROUP BY "Sales Batch"
-		,"Marketing Batch"
-	)
-SELECT *
-	,TO_DATE(LEFT(CAST(cte2.sort AS VARCHAR), 4) || '-' || RIGHT(CAST(cte2.sort AS VARCHAR), 2) || '-01', 'YYYY-MM-DD') AS batch_date
-	,case when activityevent = 487 then 'Lead Called' end as lead_called
-	,CASE 
-		WHEN activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
-			THEN 'Lead Consumed' end as consumed_status
-		,case WHEN activityevent IN (498)
-			AND rnk2 = 1
-			THEN 'Payment Done' end as paid_status 
-		,case WHEN activityevent = 499
-			AND rnk = 1
-			THEN 'Payment Link Sent' end as payment_link_status
-		,case WHEN activityevent = 389
-			AND STATUS = 'completed'
-			AND mx_custom_11 > 15
-			THEN 'Session Conducted' end as session_conducted_status
-		,case WHEN activityevent = 389
-			THEN 'Session Scheduled' end as session_schedule_status
-		,case WHEN activityevent = 489
-			THEN 'Test Cleared' end as test_clear_status
-		,case WHEN activityevent IN (
-				484
-				,486
-				,483
-				)
-			THEN 'Test Rolled Out'
-		END AS test_roll_out_status
-FROM cte
-JOIN cte2 ON cte2.batch = cte.sales_batch
+# 27. If someone asks for lead level detail use this 
+# WITH cte
+# AS (
+# 	SELECT sw."sales batch" AS sales_batch
+# 		,sw."Marketing Batch" AS marketing_batch
+# 		,DATE (a.createdon + interval '330 minutes') activitydate
+# 		,mx_custom_1
+# 		,lower(prospectemailaddress) AS lead_email
+# 		,CASE 
+# 			WHEN (lower(mx_custom_1) LIKE '%dev%')
+# 				THEN 'devops'
+# 			WHEN (
+# 					(lower(mx_custom_1) LIKE '%data%')
+# 					OR (lower(mx_custom_1) LIKE '%dsml%')
+# 					)
+# 				THEN 'ds'
+# 			WHEN (lower(mx_custom_1) LIKE '%acad%')
+# 				THEN 'acad'
+# 			ELSE 'none'
+# 			END AS course
+# 		,CASE 
+# 			WHEN a.activityevent IN (487)
+# 				THEN lower(mx_custom_1)
+# 			WHEN a.activityevent IN (389)
+# 				THEN lower(REGEXP_SUBSTR(mx_custom_7, '[A-Za-z0-9._%%+-]+@scaler\\.com'))
+# 			ELSE coalesce(lower(u.emailaddress))
+# 			END AS bda_email
+# 		,a.activityevent
+# 		,a.prospectid prospectid
+# 		,mx_custom_3
+# 		,mx_custom_11
+# 		,STATUS
+# 		,rank() OVER (
+# 			PARTITION BY a.prospectid
+# 			,a.activityevent ORDER BY a.createdon
+# 			) rnk
+# 		,RANK() OVER (
+# 			PARTITION BY a.prospectid
+# 			,a.activityevent
+# 			,sw."Sales Batch" ORDER BY DATE (a.createdon + interval '330 minutes') ASC
+# 			) AS rnk2
+# 	FROM interviewbit_mxradon_activities a
+# 	LEFT JOIN interviewbit_mxradon_prospectactivity_extensionbase ab ON ab.prospectactivityextensionid = a.prospectactivityid
+# 	LEFT JOIN (
+# 		SELECT userid
+# 			,replace(replace(emailaddress, '.54288.obsolete', ''), '.47349.obsolete', '') emailaddress
+# 		FROM interviewbit_mxradon_users
+# 		) u ON coalesce(ab.OWNER, ab.createdby) = u.userid
+# 	LEFT JOIN scaler_ebdb_sales_week sw ON sw.DATE = DATE (a.createdon + interval '330 minutes')
+# 	WHERE DATE (a.createdon + interval '330 minutes') >= TO_DATE('30-08-2023', 'DD-MM-YYYY')
+# 		AND a.activityevent IN (
+# 			483
+# 			,490
+# 			,493
+# 			,489
+# 			,456
+# 			,499
+# 			,455
+# 			,457
+# 			,234
+# 			,453
+# 			,309
+# 			,389
+# 			,484
+# 			,493
+# 			,231
+# 			,232
+# 			,487
+# 			,464
+# 			,498
+# 			,486
+# 			,532
+# 			,488
+# 			,504
+# 			,528
+# 			,529
+# 			)
+# 	)
+# 	,cte2
+# AS (
+# 	SELECT "Sales Batch" AS batch
+# 		,"Marketing Batch"
+# 		,AVG("Sorting") AS sort
+# 	FROM scaler_ebdb_sales_week
+# 	GROUP BY "Sales Batch"
+# 		,"Marketing Batch"
+# 	)
+# SELECT *
+# 	,TO_DATE(LEFT(CAST(cte2.sort AS VARCHAR), 4) || '-' || RIGHT(CAST(cte2.sort AS VARCHAR), 2) || '-01', 'YYYY-MM-DD') AS batch_date
+# 	,case when activityevent = 487 then 'Lead Called' end as lead_called
+# 	,CASE 
+# 		WHEN activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
+# 			THEN 'Lead Consumed' end as consumed_status
+# 		,case WHEN activityevent IN (498)
+# 			AND rnk2 = 1
+# 			THEN 'Payment Done' end as paid_status 
+# 		,case WHEN activityevent = 499
+# 			AND rnk = 1
+# 			THEN 'Payment Link Sent' end as payment_link_status
+# 		,case WHEN activityevent = 389
+# 			AND STATUS = 'completed'
+# 			AND mx_custom_11 > 15
+# 			THEN 'Session Conducted' end as session_conducted_status
+# 		,case WHEN activityevent = 389
+# 			THEN 'Session Scheduled' end as session_schedule_status
+# 		,case WHEN activityevent = 489
+# 			THEN 'Test Cleared' end as test_clear_status
+# 		,case WHEN activityevent IN (
+# 				484
+# 				,486
+# 				,483
+# 				)
+# 			THEN 'Test Rolled Out'
+# 		END AS test_roll_out_status
+# FROM cte
+# JOIN cte2 ON cte2.batch = cte.sales_batch
 
-ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
-28. FOR NON MARKETING LEADS USE THIS QUERY (temp.non_marketing_mis) ELSE USE temp.marketing_mis
-select batch,email as lead_email, 
-program_type as program,
-case when effective_flag=1 then 'effective' else 'not effective' end as effective_flag,
-case when assigned_flag=1 then 'assigned' else 'not assigned' end as assigned_flag,
-case when consumed_flag=1 then 'consumed' else 'not consumed' end as consumed_flag,
-case when test_start=1 then 'Test Started' else 'Test Not Started' end as test_start_flag,
-case when test_pass=1 then 'Test Passes' else 'Test Not Passed' end as test_passed_flag,
-case when payment_flag=1 then 'Paid' else 'Not Paid' end as payment_flag,
-case when payment_flag=1 then paying_for_type end as paid_for_program,
-prospectstage as current_stage
-from temp.non_marketing_mis
+# ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
+# 28. FOR NON MARKETING LEADS USE THIS QUERY (temp.non_marketing_mis) ELSE USE temp.marketing_mis
+# select batch,email as lead_email, 
+# program_type as program,
+# case when effective_flag=1 then 'effective' else 'not effective' end as effective_flag,
+# case when assigned_flag=1 then 'assigned' else 'not assigned' end as assigned_flag,
+# case when consumed_flag=1 then 'consumed' else 'not consumed' end as consumed_flag,
+# case when test_start=1 then 'Test Started' else 'Test Not Started' end as test_start_flag,
+# case when test_pass=1 then 'Test Passes' else 'Test Not Passed' end as test_passed_flag,
+# case when payment_flag=1 then 'Paid' else 'Not Paid' end as payment_flag,
+# case when payment_flag=1 then paying_for_type end as paid_for_program,
+# prospectstage as current_stage
+# from temp.non_marketing_mis
     """
 
     prompt = f"""Given the following reference logic and conversation history:
