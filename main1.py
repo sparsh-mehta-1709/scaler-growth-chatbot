@@ -517,40 +517,43 @@ def main():
         change_request = st.text_area("Any suggestions for improvement?")
         
         if st.button("Submit Feedback"):
-            if rating <= 5:  # Consider ratings of 5 or below as low
-                st.warning("We're sorry the result didn't meet your expectations. We'll try to improve based on your feedback.")
-                
-                # Implement the suggestion
-                with st.spinner("Implementing your suggestion and generating a new query..."):
-                    new_generated_sql = generate_sql_query(f"{latest_result['question']} {change_request}", conversation_history)
+            if 'last_query_id' in st.session_state:
+                if rating <= 5:  # Consider ratings of 5 or below as low
+                    st.warning("We're sorry the result didn't meet your expectations. We'll try to improve based on your feedback.")
                     
-                    if new_generated_sql:
-                        st.subheader("New Generated SQL query:")
-                        st.code(new_generated_sql, language="sql")
+                    # Implement the suggestion
+                    with st.spinner("Implementing your suggestion and generating a new query..."):
+                        new_generated_sql = generate_sql_query(f"{latest_result['question']} {change_request}", conversation_history)
                         
-                        new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
-                        
-                        if new_results and new_cur:
-                            st.subheader("New Query Results:")
-                            new_df = pd.DataFrame(new_results)
-                            new_column_names = [desc[0] for desc in new_cur.description]
-                            new_df.columns = new_column_names
+                        if new_generated_sql:
+                            st.subheader("New Generated SQL query:")
+                            st.code(new_generated_sql, language="sql")
                             
-                            st.dataframe(new_df, use_container_width=True)
+                            new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
                             
-                            # Ask for a new rating
-                            new_rating = st.slider("Please rate the new result", 1, 10, 5)
-                            if st.button("Submit New Rating"):
-                                new_query_id = store_query(latest_result['question'], new_generated_sql)
-                                store_feedback(new_query_id, new_rating, "Improved based on user feedback")
-                                st.success("Thank you for your updated feedback!")
+                            if new_results and new_cur:
+                                st.subheader("New Query Results:")
+                                new_df = pd.DataFrame(new_results)
+                                new_column_names = [desc[0] for desc in new_cur.description]
+                                new_df.columns = new_column_names
+                                
+                                st.dataframe(new_df, use_container_width=True)
+                                
+                                # Ask for a new rating
+                                new_rating = st.slider("Please rate the new result", 1, 10, 5)
+                                if st.button("Submit New Rating"):
+                                    new_query_id = store_query(latest_result['question'], new_generated_sql)
+                                    store_feedback(new_query_id, new_rating, "Improved based on user feedback")
+                                    st.success("Thank you for your updated feedback!")
+                            else:
+                                st.warning("No results found or there was an error executing the new query.")
                         else:
-                            st.warning("No results found or there was an error executing the new query.")
-                    else:
-                        st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
+                            st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
+                else:
+                    store_feedback(st.session_state.last_query_id, rating, change_request)
+                    st.success("Thank you for your feedback!")
             else:
-                store_feedback(query_id, rating, change_request)
-                st.success("Thank you for your feedback!")
+                st.error("No query to rate. Please submit a query first.")
 
     # Add dropdown for comment or change request
     action_type = st.selectbox("Choose an action:", ["Submit Comment", "Request Changes"])
