@@ -202,7 +202,11 @@ def main():
     # Load question history from database
     if 'previous_questions' not in st.session_state:
         history = get_question_history(st.session_state.conn)
-        st.session_state.previous_questions = [(q, r) for q, _, r, _, _ in history]
+        if history is not None:
+            st.session_state.previous_questions = [(q, r) for q, _, r, _, _ in history]
+        else:
+            st.session_state.previous_questions = []
+            st.warning("Unable to load question history from the database.")
 
     conversation_history = get_conversation_history()
 
