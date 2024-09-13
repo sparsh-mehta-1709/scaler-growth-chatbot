@@ -108,6 +108,7 @@ END AS fresh_flag
 ,
     case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
     Use these enumns for temp.marketing_mis table 
+    22. For lead level data use Lead level detail query that consists of multiple status like consumed status, lead called status, paid status, payment link sent status, test rolled out status etc.
     """
 
     reference_queries = """
