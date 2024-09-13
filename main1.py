@@ -47,13 +47,16 @@ def get_gpt4_response(prompt, conversation_history):
     try:
         messages = [
             {"role": "system", "content": "You are a helpful assistant that generates SQL queries for a Redshift database. The database contains information about mentees, courses, lessons, companies, and more. Always return only the SQL query, without any explanations, comments, or formatting. Always remember to use redshift syntax."},
+            {"role": "system", "content": "Remember to use the reference logic provided in previous messages when generating queries."},
         ] + conversation_history + [
             {"role": "user", "content": prompt}
         ]
         
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,temperature=0.8
+            model="gpt-4o-mini",  # Use the latest GPT-4 model for better context retention
+            messages=messages,
+            temperature=0.7,  # Slightly reduce temperature for more consistent outputs
+            max_tokens=2000,  # Increase max tokens to allow for longer responses
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -71,9 +74,26 @@ def generate_sql_query(user_input, conversation_history):
     reference_logic = """
     Logic from reference query:
     1. Use a CTE (Common Table Expression) named 'cte' for complex calculations.
-    2. use temp.marketing_mis table to get the data of marketing leads those who did any activity on the website of scaler 
-    3. use scaler_ebdb_users table to get the name and email of the leads who are in the temp.marketing_mis table
-    4. case when eligible_flag=0 then 'Not Eligible' when eligible_flag=1 then 'Eligible' end as eligible_flag,
+    2. Use temp.marketing_mis table for marketing leads and temp.non_marketing_mis for non-marketing leads.
+    3. Use scaler_ebdb_users table to get the name and email of the leads who are in the temp.marketing_mis table
+    4. Use case statements for flag conversions (eligible_flag, assigned_flag, consumed_flag, etc.)
+    5. Use event_type from temp.marketing_mis table to get the activity performed type of the leads
+    6. Use event_rank_registraion column to get the rank of activity performed by the leads
+    7. Calculate l2p formula as (payments_done/leads_consumed)*100
+    8. Always use the distinct keyword in the query 
+    9. Use batch column in temp.marketing_mis table to get the batch of the leads
+    10. Always use email column in the query to do any calculation
+    11. Avoid using case statements in CTE, instead use it in main query
+    12. Remember there can be multiple rows for same email as a user can perform multiple activities on the website
+    13. Use attended column to get whether the lead has attended or not attended the event
+    14. Use landing_page_url column in temp.marketing_mis to get the source url from where user came 
+    15. Use program_type to know in which program user is interested or landed from
+    16. Whenever any condition is applied don't apply that in left join always apply condition in where clause
+    17. Calculate final_source within the CTE itself
+    18. Use the provided CASE statement for Channels column
+    19. ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
+    20. For temp.marketing_mis use case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
+    21. case when eligible_flag=0 then 'Not Eligible' when eligible_flag=1 then 'Eligible' end as eligible_flag,
     case when assigned_flag=0 then 'Not Assigned' when assigned_flag=1 then 'Assigned' end as assigned_flag,
     case when consumed_flag=0 then 'Not Consumed' when consumed_flag=1 then 'Consumed' end as consumed_flag,
     case when test_launched_flag=0 then 'Not Launched' when test_launched_flag=1 then 'Launched' end as test_launched_flag,
@@ -88,251 +108,154 @@ END AS fresh_flag
 ,
     case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
     Use these enumns for temp.marketing_mis table 
-    5. Use event_type from temp.marketing_mis table to get the activity performed type of the leads
-    6. use event_rank_registraion column to get the rank of activity performed by the leads  where event_rank_registraion = 1 then it means it is the first activity performed by the lead
-    7. to calculate l2p formula is (payments_done/leads_consumed)*100
-    use count(distinct case when first_payment_done=1 then email end) as payments
-    use count(distinct case when consumed_flag=1 then email end) as consumed 
-    8. always use the distinct keyword in the query 
-    9. whenever batch is asked use batch column in temp.marketing_mis table to get the batch of the leads
-    10. always remember to use distinct keyword in case statements 
-    11. always use email column in the query to do any calculation
-    12. AVOID USING CASE STATEMENTS IN CTE INSTEAD USE IT IN MAIN QUERY  
-    13. REMEMBER THERE CAN BE MULTIPLE ROWS FOR SAME EMAIL AS A USER CAN PERFORM MULTIPLE ACTIVITIES ON THE WEBSITE SO YOU HAVE TO USE DISTINCT IN CTE TOO
-    14. count(distinct case when eligible_flag=1 then email end) as eligible
-    15. count(distinct email) as gross
-    16. used attended column to get whether the lead has attended or not attended the event
-    17. The values in event_type are 79_ScalerTopics, others, 29_Career, 11_CallBack, 3_MC, 2_Alum_Session, 99_Non_Mkt 6_Bootcamp 1_Free_Product 4_FRLS 14_Referral
-    where 3_MC means masterclass 79_ScalerTopics means Scaler Topics 29_Career means Career Roadmap Tool 11_CallBack means requested callback 2_Alum_Session means Alumni Session 99_Non_Mkt means non marketing 
-    6_Bootcamp means Bootcamp 1_Free_Product means Free Live Class 4_FRLS means Free Recorded live Session 14_Referral means Referral. 
-    Remember these all event_type are interaction points on website also known as IP 
-    18. whenever the event_type is masterclass use event_id of that event_type and connect with id of scaler_ebdb_events table to get the event name using title column in scaler_ebdb_events table and also there is start_time and end_time in events table to get date of masterclass
-    for all other event_type you can use event_name in temp.marketing_mis
-    19. Use landing_page_url column in temp.marketing_mis to get the source url from where user came 
-    20. Use program_type to know in which program user is interested or landed from
-    23. Whenever any condition is applied dont apply that in left join always apply condition in where clause
-    24. ,case
-            when lower(utm_medium) in ('google','googlesmartdisplay') then 'googledisplay'
-            when lower(utm_campaign) like '%_ads_googlesearch_brand%' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium)='whatsapp' then 'facebook'
-            when lower(utm_medium) in ('organic_social','osocial','organic_video') then 'organic_social'
-            when lower(utm_source) in ('social','osocial','osocial%2f','organic-social-3') then 'organic_social'
-            when lower(utm_medium) in ('googlediscovery','googlepmc','googleyoutube','linkedin','googlesearch','facebook','taboola','googledisplay','rtbhouse') then utm_medium
-            when lower(utm_medium) like '%reddit%' then 'reddit'
-            when lower(utm_source) = 'ads' then utm_medium
-            when lower(utm_medium) ='dv360' OR lower(utm_source)='dv360' then 'dv360'
-            when lower(utm_source) in ('hotstar.com', 'inshorts.com') then 'brandcampaign'
-            when lower(utm_campaign) like '%ads_columbia%' then 'columbia'
-            when lower(event_type) = '7_community' then 'community'
-            when lower(utm_source) = 'ib' and lower(event_type) = lower('79_ScalerTopics') then 'interviewbit'
-            when lower(utm_source) = 'midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'midfunnel' -- NEW LINE HERE FOR MIDFUNNEL
-            when lower(utm_source) = 'topics-midfunnel' then 'topics-midfunnel'
-            when lower(utm_source) = 'midfunnel' and (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') then 'midfunnel'
-            -- when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source)='topics' OR lower(utm_source) ilike '%%topics%%' then 'topics'
-            when lower(utm_source) in ('midfunnel-ib','ib-midfunnel') then 'ib-midfunnel'
-            when lower(utm_source) in ('midfunnel','brandedcontent','brandcampaign') then lower(utm_source)
-            when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source) ilike '%topics%' OR lower(utm_medium) ilike '%topics%' OR (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') or utm_medium='organic_search_topics' then 'topics'
-            when lower(utm_source) in ('1', 'champion','influencer') then 'influencer'
-            when lower(utm_source) in ('affiliate','affiliates') then 'affiliate'
-            when lower(utm_source) in ('community','discord','community_channel') then 'community'
-            when lower(utm_source) in ('ib','interviewbit') and lower(utm_medium) = 'midfunnel' then 'ib-midfunnel'
-            when lower(utm_source) in ('ib','interviewbit','interviewbit%2f') OR lower(utm_source) like '%ib moco%' then 'interviewbit'
-            when (lower(utm_medium) like '%reminder%' or lower(event_name) = '16_midfunnel') and referring_url ilike '%/interviewbit.%' then 'interviewbit'
-            when lower(utm_source) in ('som') then 'seo'
-            when lower(utm_source) in ('bing') then 'bing'
-            when (lower(event_name) = '13_leadgen' and lower(trim(utm_source))='facebook') then 'facebook'
-            when (lower(event_name) = '13_leadgen' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
-            when (lower(event_name) = '11_callback' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
-            when (lower(event_name) = '13_leadgen_li') then 'linkedin'
-            when lower(utm_medium) like '%reminder%' then 'midfunnel'
-            when lower(utm_source) ilike 'cheatsheet' or lower(utm_source) ilike 'e-guide/books' then 'midfunnel'
-            when lower(event_name) = '16_midfunnel' then 'midfunnel'
-            when lower(utm_source) like '%delacon%' OR  lower(utm_source) like '%contact us widget%' then 'organic'
-            when lower(utm_medium) in ('instructor') then 'influencer'
-            when (utm_source is null and code is not null and code <>0) or (utm_source='referral') then 'referral'
-            when lower(utm_source) in ('none','na')  or lower(utm_source) ilike 'none%' then 'organic'
-            when lower(utm_medium) in ('organic_search','referral') then 'organic'
-            when lower(utm_source) like 'midfunnel%' then 'midfunnel'
-            when ((landing_page_url like '%gclid=%') OR (landing_page_url like '%fbclid=%')) and (utm_source is null or utm_source = '') then 'other'
-            when (utm_source is null or utm_source = '') and (referring_url ilike '%utm_source=ib-midfunnel%' or referring_url ilike '%interviewbit.com%') then 'interviewbit'
-            when (utm_source is null or utm_source = '') then 'organic'
-            when lower(utm_source) = 'ib-midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'ib-midfunnel'
-            --NEW Addition
-            when ((utm_source IS NULL or utm_source = '' or utm_source in ('na','NA','none')) AND (utm_medium IS NULL or utm_medium = '' or utm_medium in ('na','NA','organic_search')) AND (utm_campaign IS NULL or utm_campaign = '' or utm_campaign in ('na','NA')))
-            or (lower(utm_source) ilike '%%none%%' and (lower(utm_medium) = 'direct' or lower(utm_medium) = 'top_nudge')) or (utm_medium ilike '%%organic%%') or (utm_source ilike '%%www.scaler.com%%' and utm_medium = 'referral') then 'organic'
-            when lower(utm_medium) like '%reminder%' or utm_source='digital-events' then 'midfunnel'
-            when event_name = 'Callback_IB_ProblemSolver' then 'interviewbit'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='none' then 'organic'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e-scaler' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='b-scaler' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='similar' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_payment' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_sales-qualified' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='affinity' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screen-lead-remarketing' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads_weekend' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='inmarket' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='in-market-segments-clubbed' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1488_recurring_sde-bootcamp' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1465_payment-apps' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1499_math-dsa' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1551_dynamic-programming' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' then 'googleyoutube'
-            else 'other'
-        end as final_source 
-        using utm_source column in temp.marketing_mis to get the final source and use event_rank_registraion = 1 when need to get the final_source
-        Calculate this within the cte itself.
-        25. Use CASE
-    WHEN final_source IN ('organic', 'influencer', 'brandedcontent', 'brandcampaign', 'dv360', 'publisher-ideal') THEN '1.Organic'
-    WHEN final_source IN ('facebook', 'googleyoutube', 'googlesearch', 'googlediscovery', 'linkedin', 'googlepmc', 'brandsearch', 'bing', 'googledisplay', 'googleuac', 'columbia', 'quora', 'taboola', 'reddit', 'yahoo', 'affiliate', 'rtbhouse', 'googleuac') THEN '2.Paid'
-    WHEN final_source IN ('midfunnel', 'interviewbit', 'community', 'organic_social', 'seo', 'other', 'referral', 'ib-midfunnel', 'topics', 'topics-midfunnel') THEN '3.Non-Paid'
-    ELSE '4.Other'
-END AS Channels this for the channels column 
-26. If someone asks for lead level detail use this 
-WITH cte
-AS (
-	SELECT sw."sales batch" AS sales_batch
-		,sw."Marketing Batch" AS marketing_batch
-		,DATE (a.createdon + interval '330 minutes') activitydate
-		,mx_custom_1
-		,lower(prospectemailaddress) AS lead_email
-		,CASE 
-			WHEN (lower(mx_custom_1) LIKE '%dev%')
-				THEN 'devops'
-			WHEN (
-					(lower(mx_custom_1) LIKE '%data%')
-					OR (lower(mx_custom_1) LIKE '%dsml%')
-					)
-				THEN 'ds'
-			WHEN (lower(mx_custom_1) LIKE '%acad%')
-				THEN 'acad'
-			ELSE 'none'
-			END AS course
-		,CASE 
-			WHEN a.activityevent IN (487)
-				THEN lower(mx_custom_1)
-			WHEN a.activityevent IN (389)
-				THEN lower(REGEXP_SUBSTR(mx_custom_7, '[A-Za-z0-9._%%+-]+@scaler\\.com'))
-			ELSE coalesce(lower(u.emailaddress))
-			END AS bda_email
-		,a.activityevent
-		,a.prospectid prospectid
-		,mx_custom_3
-		,mx_custom_11
-		,STATUS
-		,rank() OVER (
-			PARTITION BY a.prospectid
-			,a.activityevent ORDER BY a.createdon
-			) rnk
-		,RANK() OVER (
-			PARTITION BY a.prospectid
-			,a.activityevent
-			,sw."Sales Batch" ORDER BY DATE (a.createdon + interval '330 minutes') ASC
-			) AS rnk2
-	FROM interviewbit_mxradon_activities a
-	LEFT JOIN interviewbit_mxradon_prospectactivity_extensionbase ab ON ab.prospectactivityextensionid = a.prospectactivityid
-	LEFT JOIN (
-		SELECT userid
-			,replace(replace(emailaddress, '.54288.obsolete', ''), '.47349.obsolete', '') emailaddress
-		FROM interviewbit_mxradon_users
-		) u ON coalesce(ab.OWNER, ab.createdby) = u.userid
-	LEFT JOIN scaler_ebdb_sales_week sw ON sw.DATE = DATE (a.createdon + interval '330 minutes')
-	WHERE DATE (a.createdon + interval '330 minutes') >= TO_DATE('30-08-2023', 'DD-MM-YYYY')
-		AND a.activityevent IN (
-			483
-			,490
-			,493
-			,489
-			,456
-			,499
-			,455
-			,457
-			,234
-			,453
-			,309
-			,389
-			,484
-			,493
-			,231
-			,232
-			,487
-			,464
-			,498
-			,486
-			,532
-			,488
-			,504
-			,528
-			,529
-			)
-	)
-	,cte2
-AS (
-	SELECT "Sales Batch" AS batch
-		,"Marketing Batch"
-		,AVG("Sorting") AS sort
-	FROM scaler_ebdb_sales_week
-	GROUP BY "Sales Batch"
-		,"Marketing Batch"
-	)
-SELECT *
-	,TO_DATE(LEFT(CAST(cte2.sort AS VARCHAR), 4) || '-' || RIGHT(CAST(cte2.sort AS VARCHAR), 2) || '-01', 'YYYY-MM-DD') AS batch_date
-	,case when activityevent = 487 then 'Lead Called' end as lead_called
-	,CASE 
-		WHEN activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
-			THEN 'Lead Consumed' end as consumed_status
-		,case WHEN activityevent IN (498)
-			AND rnk2 = 1
-			THEN 'Payment Done' end as paid_status 
-		,case WHEN activityevent = 499
-			AND rnk = 1
-			THEN 'Payment Link Sent' end as payment_link_status
-		,case WHEN activityevent = 389
-			AND STATUS = 'completed'
-			AND mx_custom_11 > 15
-			THEN 'Session Conducted' end as session_conducted_status
-		,case WHEN activityevent = 389
-			THEN 'Session Scheduled' end as session_schedule_status
-		,case WHEN activityevent = 489
-			THEN 'Test Cleared' end as test_clear_status
-		,case WHEN activityevent IN (
-				484
-				,486
-				,483
-				)
-			THEN 'Test Rolled Out'
-		END AS test_roll_out_status
-FROM cte
-JOIN cte2 ON cte2.batch = cte.sales_batch
-
-ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
-27. FOR NON MARKETING LEADS USE THIS QUERY (temp.non_marketing_mis) ELSE USE temp.marketing_mis
-select batch,email as lead_email, 
-program_type as program,
-case when effective_flag=1 then 'effective' else 'not effective' end as effective_flag,
-case when assigned_flag=1 then 'assigned' else 'not assigned' end as assigned_flag,
-case when consumed_flag=1 then 'consumed' else 'not consumed' end as consumed_flag,
-case when test_start=1 then 'Test Started' else 'Test Not Started' end as test_start_flag,
-case when test_pass=1 then 'Test Passes' else 'Test Not Passed' end as test_passed_flag,
-case when payment_flag=1 then 'Paid' else 'Not Paid' end as payment_flag,
-case when payment_flag=1 then paying_for_type end as paid_for_program,
-prospectstage as current_stage
-from temp.non_marketing_mis
-28. For temp.marketing_mis use case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
     """
 
-    prompt = f"""Given the following reference logic and conversation history:
+    reference_queries = """
+    -- Query 1: Main marketing query
+    WITH cte AS (
+        SELECT DISTINCT
+            email,
+            batch,
+            event_type,
+            event_rank_registraion,
+            eligible_flag,
+            assigned_flag,
+            consumed_flag,
+            test_launched_flag,
+            test_passed_flag,
+            ls_fresh_flag,
+            first_payment_done,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            utm_content,
+            event_name,
+            landing_page_url,
+            referring_url,
+            program_type,
+            CASE
+                WHEN lower(utm_medium) IN ('google','googlesmartdisplay') THEN 'googledisplay'
+                WHEN lower(utm_campaign) LIKE '%_ads_googlesearch_brand%' THEN 'brandsearch'
+                -- ... (rest of the CASE statement for final_source)
+                WHEN lower(utm_source) = 'ads' AND lower(utm_medium) ='google.com' THEN 'googleyoutube'
+                ELSE 'other'
+            END AS final_source
+        FROM temp.marketing_mis
+        WHERE event_rank_registraion = 1
+    )
+    SELECT
+        batch,
+        COUNT(DISTINCT email) AS gross,
+        COUNT(DISTINCT CASE WHEN eligible_flag = 1 THEN email END) AS eligible,
+        COUNT(DISTINCT CASE WHEN assigned_flag = 1 THEN email END) AS assigned,
+        COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END) AS consumed,
+        COUNT(DISTINCT CASE WHEN first_payment_done = 1 THEN email END) AS payments,
+        CASE
+            WHEN COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END) > 0
+            THEN (COUNT(DISTINCT CASE WHEN first_payment_done = 1 THEN email END)::FLOAT / 
+                  COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END)) * 100
+            ELSE 0
+        END AS l2p,
+        CASE
+            WHEN final_source IN ('organic', 'influencer', 'brandedcontent', 'brandcampaign', 'dv360', 'publisher-ideal') THEN '1.Organic'
+            WHEN final_source IN ('facebook', 'googleyoutube', 'googlesearch', 'googlediscovery', 'linkedin', 'googlepmc', 'brandsearch', 'bing', 'googledisplay', 'googleuac', 'columbia', 'quora', 'taboola', 'reddit', 'yahoo', 'affiliate', 'rtbhouse', 'googleuac') THEN '2.Paid'
+            WHEN final_source IN ('midfunnel', 'interviewbit', 'community', 'organic_social', 'seo', 'other', 'referral', 'ib-midfunnel', 'topics', 'topics-midfunnel') THEN '3.Non-Paid'
+            ELSE '4.Other'
+        END AS Channels
+    FROM cte
+    GROUP BY batch, Channels
+    ORDER BY batch, Channels;
+
+    -- Query 2: Lead level detail query
+    WITH cte AS (
+        SELECT sw."sales batch" AS sales_batch,
+               sw."Marketing Batch" AS marketing_batch,
+               DATE(a.createdon + interval '330 minutes') activitydate,
+               mx_custom_1,
+               lower(prospectemailaddress) AS lead_email,
+               CASE 
+                   WHEN lower(mx_custom_1) LIKE '%dev%' THEN 'devops'
+                   WHEN lower(mx_custom_1) LIKE '%data%' OR lower(mx_custom_1) LIKE '%dsml%' THEN 'ds'
+                   WHEN lower(mx_custom_1) LIKE '%acad%' THEN 'acad'
+                   ELSE 'none'
+               END AS course,
+               CASE 
+                   WHEN a.activityevent IN (487) THEN lower(mx_custom_1)
+                   WHEN a.activityevent IN (389) THEN lower(REGEXP_SUBSTR(mx_custom_7, '[A-Za-z0-9._%%+-]+@scaler\\.com'))
+                   ELSE coalesce(lower(u.emailaddress))
+               END AS bda_email,
+               a.activityevent,
+               a.prospectid prospectid,
+               mx_custom_3,
+               mx_custom_11,
+               STATUS,
+               rank() OVER (PARTITION BY a.prospectid, a.activityevent ORDER BY a.createdon) rnk,
+               RANK() OVER (PARTITION BY a.prospectid, a.activityevent, sw."Sales Batch" ORDER BY DATE(a.createdon + interval '330 minutes') ASC) AS rnk2
+        FROM interviewbit_mxradon_activities a
+        LEFT JOIN interviewbit_mxradon_prospectactivity_extensionbase ab ON ab.prospectactivityextensionid = a.prospectactivityid
+        LEFT JOIN (
+            SELECT userid,
+                   replace(replace(emailaddress, '.54288.obsolete', ''), '.47349.obsolete', '') emailaddress
+            FROM interviewbit_mxradon_users
+        ) u ON coalesce(ab.OWNER, ab.createdby) = u.userid
+        LEFT JOIN scaler_ebdb_sales_week sw ON sw.DATE = DATE(a.createdon + interval '330 minutes')
+        WHERE DATE(a.createdon + interval '330 minutes') >= TO_DATE('30-08-2023', 'DD-MM-YYYY')
+              AND a.activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
+    ),
+    cte2 AS (
+        SELECT "Sales Batch" AS batch,
+               "Marketing Batch",
+               AVG("Sorting") AS sort
+        FROM scaler_ebdb_sales_week
+        GROUP BY "Sales Batch", "Marketing Batch"
+    )
+    SELECT cte.*,
+           cte2.sort,
+           TO_DATE(LEFT(CAST(cte2.sort AS VARCHAR), 4) || '-' || RIGHT(CAST(cte2.sort AS VARCHAR), 2) || '-01', 'YYYY-MM-DD') AS batch_date,
+           CASE WHEN activityevent = 487 THEN 'Lead Called' END AS lead_called,
+           CASE WHEN activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
+                THEN 'Lead Consumed' END AS consumed_status,
+           CASE WHEN activityevent IN (498) AND rnk2 = 1 THEN 'Payment Done' END AS paid_status,
+           CASE WHEN activityevent = 499 AND rnk = 1 THEN 'Payment Link Sent' END AS payment_link_status,
+           CASE WHEN activityevent = 389 AND STATUS = 'completed' AND mx_custom_11 > 15 THEN 'Session Conducted' END AS session_conducted_status,
+           CASE WHEN activityevent = 389 THEN 'Session Scheduled' END AS session_schedule_status,
+           CASE WHEN activityevent = 489 THEN 'Test Cleared' END AS test_clear_status,
+           CASE WHEN activityevent IN (484, 486, 483) THEN 'Test Rolled Out' END AS test_roll_out_status
+    FROM cte
+    JOIN cte2 ON cte2.batch = cte.sales_batch;
+
+    -- Query 3: Non-marketing leads query
+    SELECT 
+        batch,
+        email AS lead_email, 
+        program_type AS program,
+        CASE WHEN effective_flag = 1 THEN 'effective' ELSE 'not effective' END AS effective_flag,
+        CASE WHEN assigned_flag = 1 THEN 'assigned' ELSE 'not assigned' END AS assigned_flag,
+        CASE WHEN consumed_flag = 1 THEN 'consumed' ELSE 'not consumed' END AS consumed_flag,
+        CASE WHEN test_start = 1 THEN 'Test Started' ELSE 'Test Not Started' END AS test_start_flag,
+        CASE WHEN test_pass = 1 THEN 'Test Passes' ELSE 'Test Not Passed' END AS test_passed_flag,
+        CASE WHEN payment_flag = 1 THEN 'Paid' ELSE 'Not Paid' END AS payment_flag,
+        CASE WHEN payment_flag = 1 THEN paying_for_type END AS paid_for_program,
+        prospectstage AS current_stage
+    FROM temp.non_marketing_mis;
+    """
+
+    prompt = f"""Given the following reference logic and reference queries:
 
 Reference Logic:
 {reference_logic}
 
+Reference Queries:
+{reference_queries}
+
 Conversation History:
-{conversation_history}
+{' '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-5:]])}
 
 Generate a SQL query for the following request: {user_input}
 
-Return only the SQL query, without any explanations, comments, or formatting. Use the DISTINCT keyword where appropriate. Follow the structure and logic of the reference query, adapting it to the specific request. Learn from any feedback or corrections in the conversation history."""
+Return only the SQL query, without any explanations, comments, or formatting. Use the DISTINCT keyword where appropriate. Follow the structure and logic of the reference queries, adapting them to the specific request. Learn from any feedback or corrections in the conversation history.
+
+Important: For non-marketing leads, use temp.non_marketing_mis table. For marketing leads, use temp.marketing_mis table. Choose the appropriate table based on the context of the user's request."""
 
     generated_sql = get_gpt4_response(prompt, conversation_history)
     return clean_sql_query(generated_sql)
@@ -523,6 +446,10 @@ def main():
         role = message["role"]
         content = message["content"]
         st.text(f"{role.capitalize()}: {content}")
+
+    # Limit conversation history to last 10 messages
+    if len(conversation_history) > 10:
+        conversation_history = conversation_history[-10:]
 
     # Add a centered footer
     st.markdown("---")
