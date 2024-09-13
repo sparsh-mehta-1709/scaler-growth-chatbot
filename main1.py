@@ -112,6 +112,7 @@ END AS fresh_flag
     Use these enumns for temp.marketing_mis table 
     22. For lead level data use Lead level detail query that consists of multiple status like consumed status, lead called status, paid status, payment link sent status, test rolled out status etc.
     23. AVOID USING OUTER JOINS
+    24. until specified to use marketing or non marketing leads use both else use the specified lead data
     """
 
     reference_queries = """
