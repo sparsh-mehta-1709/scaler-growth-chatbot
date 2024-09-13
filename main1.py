@@ -337,7 +337,7 @@ def store_query(question, query):
             conn.close()
     return None
 
-def store_feedback(query_id, rating, change_request):
+def store_feedback(query_id, rating, change_request, new_query=None):
     conn = connect_to_db()
     if conn:
         try:
@@ -346,6 +346,14 @@ def store_feedback(query_id, rating, change_request):
                     INSERT INTO sql_llm_feedback (query_id, rating, change_request)
                     VALUES (%s, %s, %s)
                 """, (query_id, rating, change_request))
+                
+                if new_query:
+                    cur.execute("""
+                        UPDATE sql_llm_queries
+                        SET query = %s
+                        WHERE id = %s
+                    """, (new_query, query_id))
+                
                 conn.commit()
             st.success("Feedback stored successfully.")
         except psycopg2.Error as e:
@@ -531,13 +539,15 @@ def main():
         change_request = st.text_area("Any suggestions for improvement?")
         
         if st.button("Submit Feedback"):
-            store_feedback(st.session_state.latest_query['id'], rating, change_request)
-            st.success("Thank you for your feedback!")
-
-            if rating <= 5:  # Consider ratings of 5 or below as low
+            new_query = None
+            
+            # Always display the original results
+            st.subheader("Original Query Results:")
+            st.dataframe(st.session_state.latest_query['results'], use_container_width=True)
+            
+            if rating <= 5:
                 st.warning("We're sorry the result didn't meet your expectations. We'll try to improve based on your feedback.")
                 
-                # Implement the suggestion
                 with st.spinner("Implementing your suggestion and generating a new query..."):
                     new_generated_sql = generate_sql_query(f"{st.session_state.latest_query['question']} {change_request}", conversation_history)
                     
@@ -555,22 +565,17 @@ def main():
                             
                             st.dataframe(new_df, use_container_width=True)
                             
-                            # Store the new query
-                            new_query_id = store_query(st.session_state.latest_query['question'], new_generated_sql)
-                            
-                            # Ask for a new rating
-                            new_rating = st.slider("Please rate the new result", 1, 10, 5)
-                            if st.button("Submit New Rating"):
-                                store_feedback(new_query_id, new_rating, "Improved based on user feedback")
-                                st.success("Thank you for your updated feedback!")
+                            new_query = new_generated_sql
                         else:
                             st.warning("No results found or there was an error executing the new query.")
                     else:
                         st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
-            else:  # High rating
-                # Update the stored query with the high-rated one
-                update_query(st.session_state.latest_query['id'], st.session_state.latest_query['sql'])
+            else:
                 st.success("Thank you for your positive feedback! This query has been saved as a high-quality example.")
+            
+            store_feedback(st.session_state.latest_query['id'], rating, change_request, new_query)
+            st.success("Thank you for your feedback!")
+
     else:
         st.info("Submit a query to see results and provide feedback.")
 
