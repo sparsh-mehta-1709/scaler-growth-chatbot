@@ -58,7 +58,7 @@ def get_gpt4_response(prompt, conversation_history):
             model="gpt-4o-mini",  # Use the latest GPT-4 model for better context retention
             messages=messages,
             temperature=0.7,  # Slightly reduce temperature for more consistent outputs
-            max_tokens=2000,  # Increase max tokens to allow for longer responses
+            max_tokens=4000,  # Increase max tokens to allow for longer responses
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
