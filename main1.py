@@ -417,7 +417,7 @@ def get_similar_questions(user_input):
                     tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
                     cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
                     similar_question_index = cosine_similarities.argmax()
-                    if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
+                    if cosine_similarities[similar_question_index] > 0.9:  # Threshold for similarity
                         similar_question = questions[similar_question_index]
                         best_query = get_best_query(similar_question)
                         if best_query:
