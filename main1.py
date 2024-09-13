@@ -114,32 +114,48 @@ def create_history_table(conn):
     """Create a table to store question history, ratings, and user feedback if it doesn't exist."""
     query = """
     CREATE TABLE IF NOT EXISTS sql_llm_question_history (
-        id SERIAL PRIMARY KEY,
-        question TEXT NOT NULL,
-        query TEXT NOT NULL,
-        rating INTEGER,
-        user_feedback TEXT,
+        id INT IDENTITY(1,1),
+        question VARCHAR(MAX) NOT NULL,
+        query VARCHAR(MAX) NOT NULL,
+        rating INT,
+        user_feedback VARCHAR(MAX),
         feedback_type VARCHAR(20),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT SYSDATE
     )
+    DISTSTYLE AUTO
+    SORTKEY (created_at);
     """
     execute_query(conn, query)
+
+def get_question_history(conn):
+    """Retrieve all questions, queries, ratings, and feedback from the database."""
+    # First, check if the table exists
+    check_table_query = """
+    SELECT COUNT(*)
+    FROM pg_tables
+    WHERE schemaname = 'public' AND tablename = 'sql_llm_question_history';
+    """
+    result, _ = execute_query(conn, check_table_query)
+    
+    if result and result[0][0] > 0:
+        # Table exists, fetch the data
+        select_query = "SELECT question, query, rating, user_feedback, feedback_type FROM sql_llm_question_history"
+        results, _ = execute_query(conn, select_query)
+        return results if results is not None else []
+    else:
+        # Table doesn't exist, create it
+        create_history_table(conn)
+        return []
 
 def save_question_history(conn, question, query, rating, user_feedback=None, feedback_type=None):
     """Save a question, its query, rating, and user feedback to the database."""
     insert_query = """
-    INSERT INTO question_history (question, query, rating, user_feedback, feedback_type)
+    INSERT INTO sql_llm_question_history (question, query, rating, user_feedback, feedback_type)
     VALUES (%s, %s, %s, %s, %s)
     """
     with conn.cursor() as cur:
         cur.execute(insert_query, (question, query, rating, user_feedback, feedback_type))
     conn.commit()
-
-def get_question_history(conn):
-    """Retrieve all questions, queries, ratings, and feedback from the database."""
-    select_query = "SELECT question, query, rating, user_feedback, feedback_type FROM question_history"
-    results, _ = execute_query(conn, select_query)
-    return results
 
 def calculate_similarity(question1, question2):
     vectorizer = TfidfVectorizer()
@@ -202,11 +218,7 @@ def main():
     # Load question history from database
     if 'previous_questions' not in st.session_state:
         history = get_question_history(st.session_state.conn)
-        if history is not None:
-            st.session_state.previous_questions = [(q, r) for q, _, r, _, _ in history]
-        else:
-            st.session_state.previous_questions = []
-            st.warning("Unable to load question history from the database.")
+        st.session_state.previous_questions = [(q, r) for q, _, r, _, _ in history]
 
     conversation_history = get_conversation_history()
 
