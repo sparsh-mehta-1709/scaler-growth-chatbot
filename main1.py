@@ -275,7 +275,7 @@ def create_feedback_table_if_not_exists():
             with conn.cursor() as cur:
                 # Create queries table
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS queries (
+                    CREATE TABLE IF NOT EXISTS sql_llm_queries (
                         id INT IDENTITY(1,1),
                         question VARCHAR(MAX) NOT NULL,
                         query VARCHAR(MAX) NOT NULL,
@@ -292,7 +292,7 @@ def create_feedback_table_if_not_exists():
                         change_request VARCHAR(MAX),
                         created_at TIMESTAMP DEFAULT SYSDATE,
                         PRIMARY KEY (id),
-                        FOREIGN KEY (query_id) REFERENCES queries(id)
+                        FOREIGN KEY (query_id) REFERENCES sql_llm_queries(id)
                     )
                 """)
                 conn.commit()
@@ -312,10 +312,10 @@ def store_query(question, query):
                 
                 # Insert the query and capture the new ID
                 cur.execute("""
-                    INSERT INTO queries (question, query)
+                    INSERT INTO sql_llm_queries (question, query)
                     VALUES (%s, %s);
                     INSERT INTO temp_id (id)
-                    SELECT id FROM queries
+                    SELECT id FROM sql_llm_queries
                     WHERE question = %s AND query = %s
                     ORDER BY created_at DESC
                     LIMIT 1;
@@ -359,7 +359,7 @@ def get_similar_questions(user_input):
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT q.id, q.question, q.query, AVG(f.rating) as avg_rating
-                    FROM queries q
+                    FROM sql_llm_queries q
                     LEFT JOIN sql_llm_feedback f ON q.id = f.query_id
                     GROUP BY q.id, q.question, q.query
                 """)
