@@ -4,8 +4,6 @@ import psycopg2
 import re
 import os
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # Set up OpenAI API key
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
@@ -71,36 +69,193 @@ def clean_sql_query(sql_query):
     sql_query = sql_query.strip()
     return sql_query
 
-def get_relevant_feedback(conn, user_input, similarity_threshold=0.7, max_feedback=3):
-    """Retrieve most relevant feedback for similar questions."""
-    history = get_question_history(conn)
-    relevant_feedback = []
-    for prev_question, _, _, prev_feedback, prev_feedback_type in history:
-        similarity = calculate_similarity(user_input, prev_question)
-        if similarity >= similarity_threshold and prev_feedback:
-            relevant_feedback.append((similarity, f"{prev_feedback_type}: {prev_feedback[:100]}"))
-    
-    # Sort by similarity and take top 3
-    relevant_feedback.sort(key=lambda x: x[0], reverse=True)
-    return [feedback for _, feedback in relevant_feedback[:max_feedback]]
+def generate_sql_query(user_input, conversation_history):
+    """Generate a SQL query based on the user's input."""
+    reference_logic = """
+    Logic from reference query:
+    1. Use a CTE (Common Table Expression) named 'cte' for complex calculations.
+    2. Use temp.marketing_mis table for marketing leads and temp.non_marketing_mis for non-marketing leads.
+    3. Use scaler_ebdb_users table to get the name and email of the leads who are in the temp.marketing_mis table
+    4. Use case statements for flag conversions (eligible_flag, assigned_flag, consumed_flag, etc.)
+    5. Use event_type from temp.marketing_mis table to get the activity performed type of the leads
+    6. Use event_rank_registraion column to get the rank of activity performed by the leads
+    7. Calculate l2p formula as (payments_done/leads_consumed)*100
+    8. Always use the distinct keyword in the query 
+    9. Use batch column in temp.marketing_mis table to get the batch of the leads
+    10. Always use email column in the query to do any calculation
+    11. Avoid using case statements in CTE, instead use it in main query
+    12. Remember there can be multiple rows for same email as a user can perform multiple activities on the website
+    13. Use attended column to get whether the lead has attended or not attended the event
+    14. Use landing_page_url column in temp.marketing_mis to get the source url from where user came 
+    15. Use program_type to know in which program user is interested or landed from
+    16. Whenever any condition is applied don't apply that in left join always apply condition in where clause
+    17. Calculate final_source within the CTE itself
+    18. Use the provided CASE statement for Channels column
+    19. ALWAYS USE BATCH FROM CTE2 WHENEVER SOMEONE ASKS INFORMATION RELATED TO A PARTICULAR BATCH.
+    20. For temp.marketing_mis use case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
+    21. case when eligible_flag=0 then 'Not Eligible' when eligible_flag=1 then 'Eligible' end as eligible_flag,
+    case when assigned_flag=0 then 'Not Assigned' when assigned_flag=1 then 'Assigned' end as assigned_flag,
+    case when consumed_flag=0 then 'Not Consumed' when consumed_flag=1 then 'Consumed' end as consumed_flag,
+    case when test_launched_flag=0 then 'Not Launched' when test_launched_flag=1 then 'Launched' end as test_launched_flag,
+    case when test_passed_flag=0 then 'Test Not Passed' when test_passed_flag=1 then 'Test Passed' end as test_passed_flag,
+    CASE 
+    WHEN ls_fresh_flag = 0 THEN 'Ineffective Re-engaged'
+    WHEN ls_fresh_flag = 1 THEN 'Re-engaged'
+    WHEN ls_fresh_flag = 2 THEN 'Fresh'
+    WHEN ls_fresh_flag = 3 THEN 'Not in LSQ'
+    ELSE 'Unknown'
+END AS fresh_flag
+,
+    case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
+    Use these enumns for temp.marketing_mis table 
+    """
 
-def generate_sql_query(user_input, conversation_history, relevant_feedback):
-    """Generate a SQL query based on the user's input and relevant feedback."""
-    feedback_prompt = "\n".join(relevant_feedback) if relevant_feedback else "No relevant feedback."
-    
-    # Truncate conversation history to last 3 messages
-    recent_history = conversation_history[-3:]
-    history_prompt = "\n".join([f"{msg['role']}: {msg['content'][:50]}..." for msg in recent_history])
+    reference_queries = """
+    -- Query 1: Main marketing query
+    WITH cte AS (
+        SELECT DISTINCT
+            email,
+            batch,
+            event_type,
+            event_rank_registraion,
+            eligible_flag,
+            assigned_flag,
+            consumed_flag,
+            test_launched_flag,
+            test_passed_flag,
+            ls_fresh_flag,
+            first_payment_done,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            utm_content,
+            event_name,
+            landing_page_url,
+            referring_url,
+            program_type,
+            CASE
+                WHEN lower(utm_medium) IN ('google','googlesmartdisplay') THEN 'googledisplay'
+                WHEN lower(utm_campaign) LIKE '%_ads_googlesearch_brand%' THEN 'brandsearch'
+                -- ... (rest of the CASE statement for final_source)
+                WHEN lower(utm_source) = 'ads' AND lower(utm_medium) ='google.com' THEN 'googleyoutube'
+                ELSE 'other'
+            END AS final_source
+        FROM temp.marketing_mis
+        WHERE event_rank_registraion = 1
+    )
+    SELECT
+        batch,
+        COUNT(DISTINCT email) AS gross,
+        COUNT(DISTINCT CASE WHEN eligible_flag = 1 THEN email END) AS eligible,
+        COUNT(DISTINCT CASE WHEN assigned_flag = 1 THEN email END) AS assigned,
+        COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END) AS consumed,
+        COUNT(DISTINCT CASE WHEN first_payment_done = 1 THEN email END) AS payments,
+        CASE
+            WHEN COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END) > 0
+            THEN (COUNT(DISTINCT CASE WHEN first_payment_done = 1 THEN email END)::FLOAT / 
+                  COUNT(DISTINCT CASE WHEN consumed_flag = 1 THEN email END)) * 100
+            ELSE 0
+        END AS l2p,
+        CASE
+            WHEN final_source IN ('organic', 'influencer', 'brandedcontent', 'brandcampaign', 'dv360', 'publisher-ideal') THEN '1.Organic'
+            WHEN final_source IN ('facebook', 'googleyoutube', 'googlesearch', 'googlediscovery', 'linkedin', 'googlepmc', 'brandsearch', 'bing', 'googledisplay', 'googleuac', 'columbia', 'quora', 'taboola', 'reddit', 'yahoo', 'affiliate', 'rtbhouse', 'googleuac') THEN '2.Paid'
+            WHEN final_source IN ('midfunnel', 'interviewbit', 'community', 'organic_social', 'seo', 'other', 'referral', 'ib-midfunnel', 'topics', 'topics-midfunnel') THEN '3.Non-Paid'
+            ELSE '4.Other'
+        END AS Channels
+    FROM cte
+    GROUP BY batch, Channels
+    ORDER BY batch, Channels;
 
-    prompt = f"""Generate a SQL query for: {user_input}
+    -- Query 2: Lead level detail query
+    WITH cte AS (
+        SELECT sw."sales batch" AS sales_batch,
+               sw."Marketing Batch" AS marketing_batch,
+               DATE(a.createdon + interval '330 minutes') activitydate,
+               mx_custom_1,
+               lower(prospectemailaddress) AS lead_email,
+               CASE 
+                   WHEN lower(mx_custom_1) LIKE '%dev%' THEN 'devops'
+                   WHEN lower(mx_custom_1) LIKE '%data%' OR lower(mx_custom_1) LIKE '%dsml%' THEN 'ds'
+                   WHEN lower(mx_custom_1) LIKE '%acad%' THEN 'acad'
+                   ELSE 'none'
+               END AS course,
+               CASE 
+                   WHEN a.activityevent IN (487) THEN lower(mx_custom_1)
+                   WHEN a.activityevent IN (389) THEN lower(REGEXP_SUBSTR(mx_custom_7, '[A-Za-z0-9._%%+-]+@scaler\\.com'))
+                   ELSE coalesce(lower(u.emailaddress))
+               END AS bda_email,
+               a.activityevent,
+               a.prospectid prospectid,
+               mx_custom_3,
+               mx_custom_11,
+               STATUS,
+               rank() OVER (PARTITION BY a.prospectid, a.activityevent ORDER BY a.createdon) rnk,
+               RANK() OVER (PARTITION BY a.prospectid, a.activityevent, sw."Sales Batch" ORDER BY DATE(a.createdon + interval '330 minutes') ASC) AS rnk2
+        FROM interviewbit_mxradon_activities a
+        LEFT JOIN interviewbit_mxradon_prospectactivity_extensionbase ab ON ab.prospectactivityextensionid = a.prospectactivityid
+        LEFT JOIN (
+            SELECT userid,
+                   replace(replace(emailaddress, '.54288.obsolete', ''), '.47349.obsolete', '') emailaddress
+            FROM interviewbit_mxradon_users
+        ) u ON coalesce(ab.OWNER, ab.createdby) = u.userid
+        LEFT JOIN scaler_ebdb_sales_week sw ON sw.DATE = DATE(a.createdon + interval '330 minutes')
+        WHERE DATE(a.createdon + interval '330 minutes') >= TO_DATE('30-08-2023', 'DD-MM-YYYY')
+              AND a.activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
+    ),
+    cte2 AS (
+        SELECT "Sales Batch" AS batch,
+               "Marketing Batch",
+               AVG("Sorting") AS sort
+        FROM scaler_ebdb_sales_week
+        GROUP BY "Sales Batch", "Marketing Batch"
+    )
+    SELECT cte.*,
+           cte2.sort,
+           TO_DATE(LEFT(CAST(cte2.sort AS VARCHAR), 4) || '-' || RIGHT(CAST(cte2.sort AS VARCHAR), 2) || '-01', 'YYYY-MM-DD') AS batch_date,
+           CASE WHEN activityevent = 487 THEN 'Lead Called' END AS lead_called,
+           CASE WHEN activityevent IN (483, 490, 493, 489, 456, 499, 455, 457, 234, 453, 309, 389, 484, 493, 231, 232, 487, 464, 498, 486, 532, 488, 504, 528, 529)
+                THEN 'Lead Consumed' END AS consumed_status,
+           CASE WHEN activityevent IN (498) AND rnk2 = 1 THEN 'Payment Done' END AS paid_status,
+           CASE WHEN activityevent = 499 AND rnk = 1 THEN 'Payment Link Sent' END AS payment_link_status,
+           CASE WHEN activityevent = 389 AND STATUS = 'completed' AND mx_custom_11 > 15 THEN 'Session Conducted' END AS session_conducted_status,
+           CASE WHEN activityevent = 389 THEN 'Session Scheduled' END AS session_schedule_status,
+           CASE WHEN activityevent = 489 THEN 'Test Cleared' END AS test_clear_status,
+           CASE WHEN activityevent IN (484, 486, 483) THEN 'Test Rolled Out' END AS test_roll_out_status
+    FROM cte
+    JOIN cte2 ON cte2.batch = cte.sales_batch;
 
-Relevant Feedback:
-{feedback_prompt}
+    -- Query 3: Non-marketing leads query
+    SELECT 
+        batch,
+        email AS lead_email, 
+        program_type AS program,
+        CASE WHEN effective_flag = 1 THEN 'effective' ELSE 'not effective' END AS effective_flag,
+        CASE WHEN assigned_flag = 1 THEN 'assigned' ELSE 'not assigned' END AS assigned_flag,
+        CASE WHEN consumed_flag = 1 THEN 'consumed' ELSE 'not consumed' END AS consumed_flag,
+        CASE WHEN test_start = 1 THEN 'Test Started' ELSE 'Test Not Started' END AS test_start_flag,
+        CASE WHEN test_pass = 1 THEN 'Test Passes' ELSE 'Test Not Passed' END AS test_passed_flag,
+        CASE WHEN payment_flag = 1 THEN 'Paid' ELSE 'Not Paid' END AS payment_flag,
+        CASE WHEN payment_flag = 1 THEN paying_for_type END AS paid_for_program,
+        prospectstage AS current_stage
+    FROM temp.non_marketing_mis;
+    """
 
-Recent Conversation:
-{history_prompt}
+    prompt = f"""Given the following reference logic and reference queries:
 
-Important: Use temp.non_marketing_mis for non-marketing leads, temp.marketing_mis for marketing leads. Choose based on context. Use DISTINCT where appropriate. Return only the SQL query."""
+Reference Logic:
+{reference_logic}
+
+Reference Queries:
+{reference_queries}
+
+Conversation History:
+{' '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-5:]])}
+
+Generate a SQL query for the following request: {user_input}
+
+Return only the SQL query, without any explanations, comments, or formatting. Use the DISTINCT keyword where appropriate. Follow the structure and logic of the reference queries, adapting them to the specific request. Learn from any feedback or corrections in the conversation history.
+
+Important: For non-marketing leads, use temp.non_marketing_mis table. For marketing leads, use temp.marketing_mis table. Choose the appropriate table based on the context of the user's request."""
 
     generated_sql = get_gpt4_response(prompt, conversation_history)
     return clean_sql_query(generated_sql)
@@ -109,67 +264,6 @@ def get_conversation_history():
     if 'conversation_history' not in st.session_state:
         st.session_state.conversation_history = []
     return st.session_state.conversation_history
-
-def create_history_table(conn):
-    """Create a table to store question history, ratings, and user feedback if it doesn't exist."""
-    query = """
-    CREATE TABLE IF NOT EXISTS sql_llm_question_history (
-        id INT IDENTITY(1,1),
-        question VARCHAR(MAX) NOT NULL,
-        query VARCHAR(MAX) NOT NULL,
-        rating INT,
-        user_feedback VARCHAR(MAX),
-        feedback_type VARCHAR(20),
-        created_at TIMESTAMP DEFAULT SYSDATE
-    )
-    DISTSTYLE AUTO
-    SORTKEY (created_at);
-    """
-    execute_query(conn, query)
-
-def get_question_history(conn):
-    """Retrieve all questions, queries, ratings, and feedback from the database."""
-    # First, check if the table exists
-    check_table_query = """
-    SELECT COUNT(*)
-    FROM pg_tables
-    WHERE schemaname = 'public' AND tablename = 'sql_llm_question_history';
-    """
-    result, _ = execute_query(conn, check_table_query)
-    
-    if result and result[0][0] > 0:
-        # Table exists, fetch the data
-        select_query = "SELECT question, query, rating, user_feedback, feedback_type FROM sql_llm_question_history"
-        results, _ = execute_query(conn, select_query)
-        return results if results is not None else []
-    else:
-        # Table doesn't exist, create it
-        create_history_table(conn)
-        return []
-
-def save_question_history(conn, question, query, rating, user_feedback=None, feedback_type=None):
-    """Save a question, its query, rating, and user feedback to the database."""
-    insert_query = """
-    INSERT INTO sql_llm_question_history (question, query, rating, user_feedback, feedback_type)
-    VALUES (%s, %s, %s, %s, %s)
-    """
-    with conn.cursor() as cur:
-        cur.execute(insert_query, (question, query, rating, user_feedback, feedback_type))
-    conn.commit()
-
-def calculate_similarity(question1, question2):
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform([question1, question2])
-    return cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-
-def find_similar_question(conn, new_question, similarity_threshold=0.8):
-    """Find a similar question from the database."""
-    history = get_question_history(conn)
-    for prev_question, prev_query, prev_rating, prev_feedback, prev_feedback_type in history:
-        similarity = calculate_similarity(new_question, prev_question)
-        if similarity >= similarity_threshold:
-            return prev_question, prev_query, prev_rating, prev_feedback, prev_feedback_type
-    return None, None, None, None, None
 
 def main():
     # Set page configuration
@@ -212,14 +306,6 @@ def main():
         st.error("Failed to connect to the database. Please check your connection settings.")
         return
 
-    # Create history table if it doesn't exist
-    create_history_table(st.session_state.conn)
-
-    # Load question history from database
-    if 'previous_questions' not in st.session_state:
-        history = get_question_history(st.session_state.conn)
-        st.session_state.previous_questions = [(q, r) for q, _, r, _, _ in history]
-
     conversation_history = get_conversation_history()
 
     # User input
@@ -231,45 +317,38 @@ def main():
     if st.button("Submit", key="submit"):
         if user_input:
             with st.spinner("Generating query and fetching results..."):
-                # Check for similar questions in the database
-                similar_question, similar_query, similar_rating, similar_feedback, similar_feedback_type = find_similar_question(st.session_state.conn, user_input)
-                
-                relevant_feedback = get_relevant_feedback(st.session_state.conn, user_input)
-                
-                if similar_question:
-                    st.info(f"A similar question was found with a rating of {similar_rating}/5.")
-                    if similar_feedback:
-                        st.info(f"Previous feedback: {similar_feedback[:100]}...")
-                    generated_sql = similar_query
-                    # Execute the similar query to get results
-                    results, cur = execute_query(st.session_state.conn, generated_sql)
-                    if results and cur:
-                        df = pd.DataFrame(results)
-                        df.columns = [desc[0] for desc in cur.description]
-                    else:
-                        st.warning("No results found for the similar query.")
-                        df = None
-                else:
-                    # Generate new query as before
-                    generated_sql = generate_sql_query(user_input, conversation_history, relevant_feedback)
-                    
-                    if generated_sql:
-                        results, cur = execute_query(st.session_state.conn, generated_sql)
-                        if results and cur:
-                            df = pd.DataFrame(results)
-                            df.columns = [desc[0] for desc in cur.description]
-                        else:
-                            st.warning("No results found for the generated query.")
-                            df = None
+                # Print user input
+                st.subheader("Your question:")
+                st.info(user_input)
 
-                # Display results
+                # Add user input to conversation history
+                conversation_history.append({"role": "user", "content": user_input})
+
+                generated_sql = generate_sql_query(user_input, conversation_history)
+
                 if generated_sql:
                     st.subheader("Generated SQL query:")
                     st.code(generated_sql, language="sql")
-                    
-                    if df is not None:
+
+                    # Add generated SQL to conversation history
+                    conversation_history.append({"role": "assistant", "content": generated_sql})
+
+                    results, cur = execute_query(st.session_state.conn, generated_sql)
+
+                    if results is None and cur is None:
+                        st.error("An error occurred while executing the query. Resetting the connection...")
+                        reset_connection()
+                        results, cur = execute_query(st.session_state.conn, generated_sql)
+
+                    if results and cur:
                         st.subheader("Query results:")
-                        st.dataframe(df, use_container_width=True)
+                        df = pd.DataFrame(results)
+                        
+                        # Get column names from the cursor description
+                        column_names = [desc[0] for desc in cur.description]
+                        
+                        # Assign column names to the dataframe
+                        df.columns = column_names
                         
                         # Add new results to the session state
                         st.session_state.query_results.append({
@@ -277,19 +356,6 @@ def main():
                             "query": generated_sql,
                             "dataframe": df
                         })
-                        
-                        # Add rating system with a visible scale
-                        st.subheader("Rate this response:")
-                        rating = st.slider("", min_value=1, max_value=5, value=3, step=1, 
-                                           help="1 = Poor, 2 = Fair, 3 = Good, 4 = Very Good, 5 = Excellent")
-                        
-                        # Add text area for optional feedback
-                        feedback = st.text_area("Additional feedback (optional):", 
-                                                help="Provide any comments or suggestions for improvement")
-                        
-                        if st.button("Submit Rating and Feedback"):
-                            save_question_history(st.session_state.conn, user_input, generated_sql, rating, feedback, "user_feedback")
-                            st.success(f"Thank you! Your rating of {rating}/5 and feedback have been recorded.")
                     else:
                         st.warning("No results found or there was an error executing the query.")
                 else:
@@ -312,6 +378,67 @@ def main():
                     file_name=f"query_results_{i}.csv",
                     mime="text/csv",
                 )
+
+    # Add dropdown for comment or change request
+    action_type = st.selectbox("Choose an action:", ["Submit Comment", "Request Changes"])
+
+    if action_type == "Submit Comment":
+        user_comment = st.text_area("Enter your comment or suggestion:")
+        if st.button("Submit"):
+            if user_comment:
+                conversation_history.append({"role": "user", "content": f"Comment: {user_comment}"})
+                st.success("Thank you for your feedback.")
+            else:
+                st.warning("Please enter a comment before submitting.")
+    else:  # Request Changes
+        change_request = st.text_area("Enter your change request:")
+        if st.button("Submit"):
+            if change_request:
+                conversation_history.append({"role": "user", "content": f"Change Request: {change_request}"})
+                with st.spinner("Generating new query and fetching results..."):
+                    new_generated_sql = generate_sql_query(change_request, conversation_history)
+
+                    if new_generated_sql:
+                        st.subheader("New Generated SQL query:")
+                        st.code(new_generated_sql, language="sql")
+
+                        conversation_history.append({"role": "assistant", "content": new_generated_sql})
+
+                        new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
+
+                        if new_results is None and new_cur is None:
+                            st.error("An error occurred while executing the query. Resetting the connection...")
+                            reset_connection()
+                            new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
+
+                        if new_results and new_cur:
+                            st.subheader("New Query Results:")
+                            new_df = pd.DataFrame(new_results)
+                            new_column_names = [desc[0] for desc in new_cur.description]
+                            new_df.columns = new_column_names
+                            
+                            st.session_state.query_results.append({
+                                "question": change_request,
+                                "query": new_generated_sql,
+                                "dataframe": new_df
+                            })
+
+                            st.dataframe(new_df, use_container_width=True)
+
+                            # Add download button for new CSV
+                            new_csv = new_df.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Download new results as CSV",
+                                data=new_csv,
+                                file_name="new_query_results.csv",
+                                mime="text/csv",
+                            )
+                        else:
+                            st.warning("No results found or there was an error executing the new query.")
+                    else:
+                        st.error("I'm sorry, I couldn't generate a proper query for your change request.")
+            else:
+                st.warning("Please enter a change request before submitting.")
 
     # Display conversation history
     st.subheader("Conversation History")
