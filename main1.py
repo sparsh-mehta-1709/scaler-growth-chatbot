@@ -308,10 +308,12 @@ def store_query(question, query):
                 cur.execute("""
                     INSERT INTO queries (question, query)
                     VALUES (%s, %s)
-                    RETURNING id
                 """, (question, query))
-                query_id = cur.fetchone()[0]
                 conn.commit()
+                
+                # Fetch the last inserted ID
+                cur.execute("SELECT LASTVAL()")
+                query_id = cur.fetchone()[0]
             return query_id
         except psycopg2.Error as e:
             st.error(f"Error storing query: {e}")
