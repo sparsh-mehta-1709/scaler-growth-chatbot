@@ -371,7 +371,9 @@ def get_similar_questions(user_input):
                     cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
                     similar_question_index = cosine_similarities.argmax()
                     if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
-                        return results[similar_question_index]
+                        similar_question = results[similar_question_index]
+                        # Replace None with 0.0 for avg_rating if it's None
+                        return similar_question[:3] + (similar_question[3] if similar_question[3] is not None else 0.0,)
         except psycopg2.Error as e:
             st.error(f"Error fetching similar questions: {e}")
         finally:
@@ -444,7 +446,10 @@ def main():
                     st.subheader("SQL query:")
                     st.code(generated_sql, language="sql")
                     st.subheader("Average Rating:")
-                    st.write(f"{avg_rating:.2f}/10")
+                    if avg_rating is not None:
+                        st.write(f"{avg_rating:.2f}/10")
+                    else:
+                        st.write("No ratings yet")
                 else:
                     generated_sql = generate_sql_query(user_input, conversation_history)
                     print("Query source: LLM-generated")
