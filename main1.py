@@ -273,32 +273,61 @@ def create_feedback_table_if_not_exists():
     if conn:
         try:
             with conn.cursor() as cur:
+                # Create queries table
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS feedback_table (
+                    CREATE TABLE IF NOT EXISTS queries (
                         id INT IDENTITY(1,1) PRIMARY KEY,
                         question TEXT NOT NULL,
                         query TEXT NOT NULL,
-                        rating INTEGER NOT NULL,
-                        change_request TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # Create feedback table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS feedback (
+                        id INT IDENTITY(1,1) PRIMARY KEY,
+                        query_id INT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        change_request TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (query_id) REFERENCES queries(id)
+                    )
+                """)
                 conn.commit()
-                st.success("Feedback table created or already exists.")
+                st.success("Queries and Feedback tables created or already exist.")
         except psycopg2.Error as e:
-            st.error(f"Error creating feedback table: {e}")
+            st.error(f"Error creating tables: {e}")
         finally:
             conn.close()
 
-def store_feedback(question, query, rating, change_request):
+def store_query(question, query):
     conn = connect_to_db()
     if conn:
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO feedback_table (question, query, rating, change_request)
-                    VALUES (%s, %s, %s, %s)
-                """, (question, query, rating, change_request))
+                    INSERT INTO queries (question, query)
+                    VALUES (%s, %s)
+                    RETURNING id
+                """, (question, query))
+                query_id = cur.fetchone()[0]
+                conn.commit()
+            return query_id
+        except psycopg2.Error as e:
+            st.error(f"Error storing query: {e}")
+        finally:
+            conn.close()
+    return None
+
+def store_feedback(query_id, rating, change_request):
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO feedback (query_id, rating, change_request)
+                    VALUES (%s, %s, %s)
+                """, (query_id, rating, change_request))
                 conn.commit()
             st.success("Feedback stored successfully.")
         except psycopg2.Error as e:
@@ -311,10 +340,15 @@ def get_similar_questions(user_input):
     if conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT question, query, rating FROM feedback_table")
+                cur.execute("""
+                    SELECT q.id, q.question, q.query, AVG(f.rating) as avg_rating
+                    FROM queries q
+                    LEFT JOIN feedback f ON q.id = f.query_id
+                    GROUP BY q.id, q.question, q.query
+                """)
                 results = cur.fetchall()
                 if results:
-                    questions = [row[0] for row in results]
+                    questions = [row[1] for row in results]
                     vectorizer = TfidfVectorizer()
                     tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
                     cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
@@ -382,22 +416,22 @@ def main():
     if st.button("Submit", key="submit"):
         if user_input:
             with st.spinner("Generating query and fetching results..."):
-                # Check for similar questions
                 similar_question = get_similar_questions(user_input)
                 if similar_question:
-                    generated_sql = similar_question[1]
-                    print("Query source: Existing similar question")  # Log query source
+                    query_id, question, generated_sql, avg_rating = similar_question
+                    print("Query source: Existing similar question")
                     
                     st.info("A similar question has been asked before. Using the highest-rated answer:")
                     st.subheader("Similar question:")
-                    st.write(similar_question[0])
+                    st.write(question)
                     st.subheader("SQL query:")
                     st.code(generated_sql, language="sql")
-                    st.subheader("Rating:")
-                    st.write(f"{similar_question[2]}/10")
+                    st.subheader("Average Rating:")
+                    st.write(f"{avg_rating:.2f}/10")
                 else:
                     generated_sql = generate_sql_query(user_input, conversation_history)
-                    print("Query source: LLM-generated")  # Log query source
+                    print("Query source: LLM-generated")
+                    query_id = store_query(user_input, generated_sql)
 
                 if generated_sql:
                     if not similar_question:
@@ -485,14 +519,15 @@ def main():
                             # Ask for a new rating
                             new_rating = st.slider("Please rate the new result", 1, 10, 5)
                             if st.button("Submit New Rating"):
-                                store_feedback(latest_result['question'], new_generated_sql, new_rating, "Improved based on user feedback")
+                                new_query_id = store_query(latest_result['question'], new_generated_sql)
+                                store_feedback(new_query_id, new_rating, "Improved based on user feedback")
                                 st.success("Thank you for your updated feedback!")
                         else:
                             st.warning("No results found or there was an error executing the new query.")
                     else:
                         st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
             else:
-                store_feedback(latest_result['question'], latest_result['query'], rating, change_request)
+                store_feedback(query_id, rating, change_request)
                 st.success("Thank you for your feedback!")
 
     # Add dropdown for comment or change request
