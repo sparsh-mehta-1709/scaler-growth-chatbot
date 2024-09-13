@@ -4,6 +4,8 @@ import psycopg2
 import re
 import os
 import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Set up OpenAI API key
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
@@ -266,6 +268,65 @@ def get_conversation_history():
         st.session_state.conversation_history = []
     return st.session_state.conversation_history
 
+def create_feedback_table_if_not_exists():
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS feedback_table (
+                        id SERIAL PRIMARY KEY,
+                        question TEXT NOT NULL,
+                        query TEXT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        change_request TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+                st.success("Feedback table created or already exists.")
+        except psycopg2.Error as e:
+            st.error(f"Error creating feedback table: {e}")
+        finally:
+            conn.close()
+
+def store_feedback(question, query, rating, change_request):
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO feedback_table (question, query, rating, change_request)
+                    VALUES (%s, %s, %s, %s)
+                """, (question, query, rating, change_request))
+                conn.commit()
+            st.success("Feedback stored successfully.")
+        except psycopg2.Error as e:
+            st.error(f"Error storing feedback: {e}")
+        finally:
+            conn.close()
+
+def get_similar_questions(user_input):
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT question, query, rating FROM feedback_table")
+                results = cur.fetchall()
+                if results:
+                    questions = [row[0] for row in results]
+                    vectorizer = TfidfVectorizer()
+                    tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
+                    cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
+                    similar_question_index = cosine_similarities.argmax()
+                    if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
+                        return results[similar_question_index]
+        except psycopg2.Error as e:
+            st.error(f"Error fetching similar questions: {e}")
+        finally:
+            conn.close()
+    return None
+
 def main():
     # Set page configuration
     st.set_page_config(page_title="Scaler Academy Database Chatbot", page_icon="🤖", layout="wide")
@@ -309,6 +370,9 @@ def main():
 
     conversation_history = get_conversation_history()
 
+    # Create feedback table if it doesn't exist
+    create_feedback_table_if_not_exists()
+
     # User input
     user_input = st.text_input("Enter your question:", placeholder="e.g., Show me the top 5 mentees by attendance")
 
@@ -318,14 +382,26 @@ def main():
     if st.button("Submit", key="submit"):
         if user_input:
             with st.spinner("Generating query and fetching results..."):
-                # Print user input
-                st.subheader("Your question:")
-                st.info(user_input)
-
-                # Add user input to conversation history
-                conversation_history.append({"role": "user", "content": user_input})
-
-                generated_sql = generate_sql_query(user_input, conversation_history)
+                # Check for similar questions
+                similar_question = get_similar_questions(user_input)
+                if similar_question:
+                    st.info("A similar question has been asked before. Here's the highest-rated answer:")
+                    st.subheader("Similar question:")
+                    st.write(similar_question[0])
+                    st.subheader("SQL query:")
+                    st.code(similar_question[1], language="sql")
+                    st.subheader("Rating:")
+                    st.write(f"{similar_question[2]}/10")
+                    
+                    use_existing = st.radio("Would you like to use this existing query or generate a new one?", 
+                                            ("Use existing", "Generate new"))
+                    
+                    if use_existing == "Use existing":
+                        generated_sql = similar_question[1]
+                    else:
+                        generated_sql = generate_sql_query(user_input, conversation_history)
+                else:
+                    generated_sql = generate_sql_query(user_input, conversation_history)
 
                 if generated_sql:
                     st.subheader("Generated SQL query:")
@@ -379,6 +455,16 @@ def main():
                     file_name=f"query_results_{i}.csv",
                     mime="text/csv",
                 )
+
+    # Add rating system
+    if st.session_state.query_results:
+        latest_result = st.session_state.query_results[-1]
+        st.subheader("Rate the latest query result")
+        rating = st.slider("Rate on a scale of 1-10", 1, 10, 5)
+        change_request = st.text_area("Any suggestions for improvement?")
+        
+        if st.button("Submit Feedback"):
+            store_feedback(latest_result['question'], latest_result['query'], rating, change_request)
 
     # Add dropdown for comment or change request
     action_type = st.selectbox("Choose an action:", ["Submit Comment", "Request Changes"])
