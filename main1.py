@@ -353,7 +353,24 @@ def store_feedback(query_id, rating, change_request):
         finally:
             conn.close()
 
-def get_similar_questions(user_input):
+def update_query(query_id, new_sql):
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE sql_llm_queries
+                    SET query = %s
+                    WHERE id = %s
+                """, (new_sql, query_id))
+                conn.commit()
+            st.success("Query updated successfully.")
+        except psycopg2.Error as e:
+            st.error(f"Error updating query: {e}")
+        finally:
+            conn.close()
+
+def get_best_query(question):
     conn = connect_to_db()
     if conn:
         try:
@@ -362,19 +379,41 @@ def get_similar_questions(user_input):
                     SELECT q.id, q.question, q.query, AVG(f.rating) as avg_rating
                     FROM sql_llm_queries q
                     LEFT JOIN sql_llm_feedback f ON q.id = f.query_id
+                    WHERE q.question = %s
                     GROUP BY q.id, q.question, q.query
+                    ORDER BY avg_rating DESC
+                    LIMIT 1
+                """, (question,))
+                result = cur.fetchone()
+                if result:
+                    return result
+        except psycopg2.Error as e:
+            st.error(f"Error fetching best query: {e}")
+        finally:
+            conn.close()
+    return None
+
+def get_similar_questions(user_input):
+    conn = connect_to_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT question
+                    FROM sql_llm_queries
                 """)
-                results = cur.fetchall()
-                if results:
-                    questions = [row[1] for row in results]
+                questions = [row[0] for row in cur.fetchall()]
+                
+                if questions:
                     vectorizer = TfidfVectorizer()
                     tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
                     cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
                     similar_question_index = cosine_similarities.argmax()
                     if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
-                        similar_question = results[similar_question_index]
-                        # Replace None with 0.0 for avg_rating if it's None
-                        return similar_question[:3] + (similar_question[3] if similar_question[3] is not None else 0.0,)
+                        similar_question = questions[similar_question_index]
+                        best_query = get_best_query(similar_question)
+                        if best_query:
+                            return best_query
         except psycopg2.Error as e:
             st.error(f"Error fetching similar questions: {e}")
         finally:
@@ -492,6 +531,9 @@ def main():
         change_request = st.text_area("Any suggestions for improvement?")
         
         if st.button("Submit Feedback"):
+            store_feedback(st.session_state.latest_query['id'], rating, change_request)
+            st.success("Thank you for your feedback!")
+
             if rating <= 5:  # Consider ratings of 5 or below as low
                 st.warning("We're sorry the result didn't meet your expectations. We'll try to improve based on your feedback.")
                 
@@ -513,19 +555,22 @@ def main():
                             
                             st.dataframe(new_df, use_container_width=True)
                             
+                            # Store the new query
+                            new_query_id = store_query(st.session_state.latest_query['question'], new_generated_sql)
+                            
                             # Ask for a new rating
                             new_rating = st.slider("Please rate the new result", 1, 10, 5)
                             if st.button("Submit New Rating"):
-                                new_query_id = store_query(st.session_state.latest_query['question'], new_generated_sql)
                                 store_feedback(new_query_id, new_rating, "Improved based on user feedback")
                                 st.success("Thank you for your updated feedback!")
                         else:
                             st.warning("No results found or there was an error executing the new query.")
                     else:
                         st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
-            else:
-                store_feedback(st.session_state.latest_query['id'], rating, change_request)
-                st.success("Thank you for your feedback!")
+            else:  # High rating
+                # Update the stored query with the high-rated one
+                update_query(st.session_state.latest_query['id'], st.session_state.latest_query['sql'])
+                st.success("Thank you for your positive feedback! This query has been saved as a high-quality example.")
     else:
         st.info("Submit a query to see results and provide feedback.")
 
