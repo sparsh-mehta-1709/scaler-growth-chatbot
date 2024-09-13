@@ -138,13 +138,76 @@ END AS fresh_flag
             landing_page_url,
             referring_url,
             program_type,
-            CASE
-                WHEN lower(utm_medium) IN ('google','googlesmartdisplay') THEN 'googledisplay'
-                WHEN lower(utm_campaign) LIKE '%_ads_googlesearch_brand%' THEN 'brandsearch'
-                -- ... (rest of the CASE statement for final_source)
-                WHEN lower(utm_source) = 'ads' AND lower(utm_medium) ='google.com' THEN 'googleyoutube'
-                ELSE 'other'
-            END AS final_source
+            case
+            when lower(utm_medium) in ('google','googlesmartdisplay') then 'googledisplay'
+            when lower(utm_campaign) like '%_ads_googlesearch_brand%' then 'brandsearch'
+            when lower(utm_source) = 'ads' and lower(utm_medium)='whatsapp' then 'facebook'
+            when lower(utm_medium) in ('organic_social','osocial','organic_video') then 'organic_social'
+            when lower(utm_source) in ('social','osocial','osocial%2f','organic-social-3') then 'organic_social'
+            when lower(utm_medium) in ('googlediscovery','googlepmc','googleyoutube','linkedin','googlesearch','facebook','taboola','googledisplay','rtbhouse') then utm_medium
+            when lower(utm_medium) like '%reddit%' then 'reddit'
+            when lower(utm_source) = 'ads' then utm_medium
+            when lower(utm_medium) ='dv360' OR lower(utm_source)='dv360' then 'dv360'
+            when lower(utm_source) in ('hotstar.com', 'inshorts.com') then 'brandcampaign'
+            when lower(utm_campaign) like '%ads_columbia%' then 'columbia'
+            when lower(event_type) = '7_community' then 'community'
+            when lower(utm_source) = 'ib' and lower(event_type) = lower('79_ScalerTopics') then 'interviewbit'
+            when lower(utm_source) = 'midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'midfunnel' -- NEW LINE HERE FOR MIDFUNNEL
+            when lower(utm_source) = 'topics-midfunnel' then 'topics-midfunnel'
+            when lower(utm_source) = 'midfunnel' and (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') then 'midfunnel'
+            -- when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source)='topics' OR lower(utm_source) ilike '%%topics%%' then 'topics'
+            when lower(utm_source) in ('midfunnel-ib','ib-midfunnel') then 'ib-midfunnel'
+            when lower(utm_source) in ('midfunnel','brandedcontent','brandcampaign') then lower(utm_source)
+            when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source) ilike '%topics%' OR lower(utm_medium) ilike '%topics%' OR (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') or utm_medium='organic_search_topics' then 'topics'
+            when lower(utm_source) in ('1', 'champion','influencer') then 'influencer'
+            when lower(utm_source) in ('affiliate','affiliates') then 'affiliate'
+            when lower(utm_source) in ('community','discord','community_channel') then 'community'
+            when lower(utm_source) in ('ib','interviewbit') and lower(utm_medium) = 'midfunnel' then 'ib-midfunnel'
+            when lower(utm_source) in ('ib','interviewbit','interviewbit%2f') OR lower(utm_source) like '%ib moco%' then 'interviewbit'
+            when (lower(utm_medium) like '%reminder%' or lower(event_name) = '16_midfunnel') and referring_url ilike '%/interviewbit.%' then 'interviewbit'
+            when lower(utm_source) in ('som') then 'seo'
+            when lower(utm_source) in ('bing') then 'bing'
+            when (lower(event_name) = '13_leadgen' and lower(trim(utm_source))='facebook') then 'facebook'
+            when (lower(event_name) = '13_leadgen' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
+            when (lower(event_name) = '11_callback' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
+            when (lower(event_name) = '13_leadgen_li') then 'linkedin'
+            when lower(utm_medium) like '%reminder%' then 'midfunnel'
+            when lower(utm_source) ilike 'cheatsheet' or lower(utm_source) ilike 'e-guide/books' then 'midfunnel'
+            when lower(event_name) = '16_midfunnel' then 'midfunnel'
+            when lower(utm_source) like '%delacon%' OR  lower(utm_source) like '%contact us widget%' then 'organic'
+            when lower(utm_medium) in ('instructor') then 'influencer'
+            when (utm_source is null and code is not null and code <>0) or (utm_source='referral') then 'referral'
+            when lower(utm_source) in ('none','na')  or lower(utm_source) ilike 'none%' then 'organic'
+            when lower(utm_medium) in ('organic_search','referral') then 'organic'
+            when lower(utm_source) like 'midfunnel%' then 'midfunnel'
+            when ((landing_page_url like '%gclid=%') OR (landing_page_url like '%fbclid=%')) and (utm_source is null or utm_source = '') then 'other'
+            when (utm_source is null or utm_source = '') and (referring_url ilike '%utm_source=ib-midfunnel%' or referring_url ilike '%interviewbit.com%') then 'interviewbit'
+            when (utm_source is null or utm_source = '') then 'organic'
+            when lower(utm_source) = 'ib-midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'ib-midfunnel'
+            --NEW Addition
+            when ((utm_source IS NULL or utm_source = '' or utm_source in ('na','NA','none')) AND (utm_medium IS NULL or utm_medium = '' or utm_medium in ('na','NA','organic_search')) AND (utm_campaign IS NULL or utm_campaign = '' or utm_campaign in ('na','NA')))
+            or (lower(utm_source) ilike '%%none%%' and (lower(utm_medium) = 'direct' or lower(utm_medium) = 'top_nudge')) or (utm_medium ilike '%%organic%%') or (utm_source ilike '%%www.scaler.com%%' and utm_medium = 'referral') then 'organic'
+            when lower(utm_medium) like '%reminder%' or utm_source='digital-events' then 'midfunnel'
+            when event_name = 'Callback_IB_ProblemSolver' then 'interviewbit'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='none' then 'organic'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e-scaler' then 'brandsearch'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='b-scaler' then 'brandsearch'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='similar' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_payment' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_sales-qualified' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='affinity' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screen-lead-remarketing' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads_weekend' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='inmarket' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='in-market-segments-clubbed' then 'googlediscovery'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1488_recurring_sde-bootcamp' then 'googlepmc'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1465_payment-apps' then 'googlepmc'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1499_math-dsa' then 'googlepmc'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1551_dynamic-programming' then 'googlepmc'
+            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' then 'googleyoutube'
+            else 'other'
+        end as final_source
         FROM temp.marketing_mis
         WHERE event_rank_registraion = 1
     )
