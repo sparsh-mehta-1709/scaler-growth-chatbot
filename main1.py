@@ -385,27 +385,24 @@ def main():
                 # Check for similar questions
                 similar_question = get_similar_questions(user_input)
                 if similar_question:
-                    st.info("A similar question has been asked before. Here's the highest-rated answer:")
+                    generated_sql = similar_question[1]
+                    print("Query source: Existing similar question")  # Log query source
+                    
+                    st.info("A similar question has been asked before. Using the highest-rated answer:")
                     st.subheader("Similar question:")
                     st.write(similar_question[0])
                     st.subheader("SQL query:")
-                    st.code(similar_question[1], language="sql")
+                    st.code(generated_sql, language="sql")
                     st.subheader("Rating:")
                     st.write(f"{similar_question[2]}/10")
-                    
-                    use_existing = st.radio("Would you like to use this existing query or generate a new one?", 
-                                            ("Use existing", "Generate new"))
-                    
-                    if use_existing == "Use existing":
-                        generated_sql = similar_question[1]
-                    else:
-                        generated_sql = generate_sql_query(user_input, conversation_history)
                 else:
                     generated_sql = generate_sql_query(user_input, conversation_history)
+                    print("Query source: LLM-generated")  # Log query source
 
                 if generated_sql:
-                    st.subheader("Generated SQL query:")
-                    st.code(generated_sql, language="sql")
+                    if not similar_question:
+                        st.subheader("Generated SQL query:")
+                        st.code(generated_sql, language="sql")
 
                     # Add generated SQL to conversation history
                     conversation_history.append({"role": "assistant", "content": generated_sql})
