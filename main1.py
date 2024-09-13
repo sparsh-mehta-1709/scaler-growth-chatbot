@@ -275,7 +275,7 @@ def create_feedback_table_if_not_exists():
             with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS feedback_table (
-                        id SERIAL PRIMARY KEY,
+                        id INT IDENTITY(1,1) PRIMARY KEY,
                         question TEXT NOT NULL,
                         query TEXT NOT NULL,
                         rating INTEGER NOT NULL,
