@@ -276,20 +276,22 @@ def create_feedback_table_if_not_exists():
                 # Create queries table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS queries (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
-                        question TEXT NOT NULL,
-                        query TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        id INT IDENTITY(1,1),
+                        question VARCHAR(MAX) NOT NULL,
+                        query VARCHAR(MAX) NOT NULL,
+                        created_at TIMESTAMP DEFAULT SYSDATE,
+                        PRIMARY KEY (id)
                     )
                 """)
                 # Create feedback table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS feedback (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
+                        id INT IDENTITY(1,1),
                         query_id INT NOT NULL,
                         rating INTEGER NOT NULL,
-                        change_request TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        change_request VARCHAR(MAX),
+                        created_at TIMESTAMP DEFAULT SYSDATE,
+                        PRIMARY KEY (id),
                         FOREIGN KEY (query_id) REFERENCES queries(id)
                     )
                 """)
@@ -305,15 +307,28 @@ def store_query(question, query):
     if conn:
         try:
             with conn.cursor() as cur:
+                # Create a temporary table to hold the new ID
+                cur.execute("CREATE TEMPORARY TABLE temp_id (id INT)")
+                
+                # Insert the query and capture the new ID
                 cur.execute("""
                     INSERT INTO queries (question, query)
-                    VALUES (%s, %s)
-                """, (question, query))
-                conn.commit()
+                    VALUES (%s, %s);
+                    INSERT INTO temp_id (id)
+                    SELECT id FROM queries
+                    WHERE question = %s AND query = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                """, (question, query, question, query))
                 
-                # Fetch the last inserted ID
-                cur.execute("SELECT LASTVAL()")
+                # Retrieve the new ID
+                cur.execute("SELECT id FROM temp_id")
                 query_id = cur.fetchone()[0]
+                
+                # Clean up the temporary table
+                cur.execute("DROP TABLE temp_id")
+                
+                conn.commit()
             return query_id
         except psycopg2.Error as e:
             st.error(f"Error storing query: {e}")
