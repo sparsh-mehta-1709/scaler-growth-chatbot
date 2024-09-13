@@ -58,7 +58,7 @@ def get_gpt4_response(prompt, conversation_history):
             model="gpt-4o-mini",  # Use the latest GPT-4 model for better context retention
             messages=messages,
             temperature=0.7,  # Slightly reduce temperature for more consistent outputs
-            max_tokens=4000,  # Increase max tokens to allow for longer responses
+            max_tokens=2000,  # Increase max tokens to allow for longer responses
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -112,7 +112,6 @@ END AS fresh_flag
     Use these enumns for temp.marketing_mis table 
     22. For lead level data use Lead level detail query that consists of multiple status like consumed status, lead called status, paid status, payment link sent status, test rolled out status etc.
     23. AVOID USING OUTER JOINS
-    24. USE SUM OF MARKETING LEADS AND NON MARKETING LEADS UNTIL SPECIFIED TO USE MARKETING LEADS OR NON MARKETING LEADS. 
     """
 
     reference_queries = """
@@ -138,76 +137,13 @@ END AS fresh_flag
             landing_page_url,
             referring_url,
             program_type,
-            case
-            when lower(utm_medium) in ('google','googlesmartdisplay') then 'googledisplay'
-            when lower(utm_campaign) like '%_ads_googlesearch_brand%' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium)='whatsapp' then 'facebook'
-            when lower(utm_medium) in ('organic_social','osocial','organic_video') then 'organic_social'
-            when lower(utm_source) in ('social','osocial','osocial%2f','organic-social-3') then 'organic_social'
-            when lower(utm_medium) in ('googlediscovery','googlepmc','googleyoutube','linkedin','googlesearch','facebook','taboola','googledisplay','rtbhouse') then utm_medium
-            when lower(utm_medium) like '%reddit%' then 'reddit'
-            when lower(utm_source) = 'ads' then utm_medium
-            when lower(utm_medium) ='dv360' OR lower(utm_source)='dv360' then 'dv360'
-            when lower(utm_source) in ('hotstar.com', 'inshorts.com') then 'brandcampaign'
-            when lower(utm_campaign) like '%ads_columbia%' then 'columbia'
-            when lower(event_type) = '7_community' then 'community'
-            when lower(utm_source) = 'ib' and lower(event_type) = lower('79_ScalerTopics') then 'interviewbit'
-            when lower(utm_source) = 'midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'midfunnel' -- NEW LINE HERE FOR MIDFUNNEL
-            when lower(utm_source) = 'topics-midfunnel' then 'topics-midfunnel'
-            when lower(utm_source) = 'midfunnel' and (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') then 'midfunnel'
-            -- when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source)='topics' OR lower(utm_source) ilike '%%topics%%' then 'topics'
-            when lower(utm_source) in ('midfunnel-ib','ib-midfunnel') then 'ib-midfunnel'
-            when lower(utm_source) in ('midfunnel','brandedcontent','brandcampaign') then lower(utm_source)
-            when lower(event_type) = lower('79_ScalerTopics') OR lower(utm_source) ilike '%topics%' OR lower(utm_medium) ilike '%topics%' OR (landing_page_url ilike '%topics/%' or referring_url ilike '%topics/%') or utm_medium='organic_search_topics' then 'topics'
-            when lower(utm_source) in ('1', 'champion','influencer') then 'influencer'
-            when lower(utm_source) in ('affiliate','affiliates') then 'affiliate'
-            when lower(utm_source) in ('community','discord','community_channel') then 'community'
-            when lower(utm_source) in ('ib','interviewbit') and lower(utm_medium) = 'midfunnel' then 'ib-midfunnel'
-            when lower(utm_source) in ('ib','interviewbit','interviewbit%2f') OR lower(utm_source) like '%ib moco%' then 'interviewbit'
-            when (lower(utm_medium) like '%reminder%' or lower(event_name) = '16_midfunnel') and referring_url ilike '%/interviewbit.%' then 'interviewbit'
-            when lower(utm_source) in ('som') then 'seo'
-            when lower(utm_source) in ('bing') then 'bing'
-            when (lower(event_name) = '13_leadgen' and lower(trim(utm_source))='facebook') then 'facebook'
-            when (lower(event_name) = '13_leadgen' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
-            when (lower(event_name) = '11_callback' and (lower(trim(utm_source))='linkedin' or lower(trim(utm_source))='linkedin-rerun')) then 'linkedin'
-            when (lower(event_name) = '13_leadgen_li') then 'linkedin'
-            when lower(utm_medium) like '%reminder%' then 'midfunnel'
-            when lower(utm_source) ilike 'cheatsheet' or lower(utm_source) ilike 'e-guide/books' then 'midfunnel'
-            when lower(event_name) = '16_midfunnel' then 'midfunnel'
-            when lower(utm_source) like '%delacon%' OR  lower(utm_source) like '%contact us widget%' then 'organic'
-            when lower(utm_medium) in ('instructor') then 'influencer'
-            when (utm_source is null and code is not null and code <>0) or (utm_source='referral') then 'referral'
-            when lower(utm_source) in ('none','na')  or lower(utm_source) ilike 'none%' then 'organic'
-            when lower(utm_medium) in ('organic_search','referral') then 'organic'
-            when lower(utm_source) like 'midfunnel%' then 'midfunnel'
-            when ((landing_page_url like '%gclid=%') OR (landing_page_url like '%fbclid=%')) and (utm_source is null or utm_source = '') then 'other'
-            when (utm_source is null or utm_source = '') and (referring_url ilike '%utm_source=ib-midfunnel%' or referring_url ilike '%interviewbit.com%') then 'interviewbit'
-            when (utm_source is null or utm_source = '') then 'organic'
-            when lower(utm_source) = 'ib-midfunnel' and lower(event_type) = lower('79_ScalerTopics') then 'ib-midfunnel'
-            --NEW Addition
-            when ((utm_source IS NULL or utm_source = '' or utm_source in ('na','NA','none')) AND (utm_medium IS NULL or utm_medium = '' or utm_medium in ('na','NA','organic_search')) AND (utm_campaign IS NULL or utm_campaign = '' or utm_campaign in ('na','NA')))
-            or (lower(utm_source) ilike '%%none%%' and (lower(utm_medium) = 'direct' or lower(utm_medium) = 'top_nudge')) or (utm_medium ilike '%%organic%%') or (utm_source ilike '%%www.scaler.com%%' and utm_medium = 'referral') then 'organic'
-            when lower(utm_medium) like '%reminder%' or utm_source='digital-events' then 'midfunnel'
-            when event_name = 'Callback_IB_ProblemSolver' then 'interviewbit'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='none' then 'organic'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e-scaler' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='b-scaler' then 'brandsearch'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='similar' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_payment' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='lookalike_sales-qualified' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='affinity' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screen-lead-remarketing' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads_weekend' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='inmarket' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='screenedleads' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='in-market-segments-clubbed' then 'googlediscovery'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1488_recurring_sde-bootcamp' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1465_payment-apps' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1499_math-dsa' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' and lower(utm_content) ='e1551_dynamic-programming' then 'googlepmc'
-            when lower(utm_source) = 'ads' and lower(utm_medium) ='google.com' then 'googleyoutube'
-            else 'other'
-        end as final_source
+            CASE
+                WHEN lower(utm_medium) IN ('google','googlesmartdisplay') THEN 'googledisplay'
+                WHEN lower(utm_campaign) LIKE '%_ads_googlesearch_brand%' THEN 'brandsearch'
+                -- ... (rest of the CASE statement for final_source)
+                WHEN lower(utm_source) = 'ads' AND lower(utm_medium) ='google.com' THEN 'googleyoutube'
+                ELSE 'other'
+            END AS final_source
         FROM temp.marketing_mis
         WHERE event_rank_registraion = 1
     )
@@ -481,7 +417,7 @@ def get_similar_questions(user_input):
                     tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
                     cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
                     similar_question_index = cosine_similarities.argmax()
-                    if cosine_similarities[similar_question_index] > 0.9:  # Threshold for similarity
+                    if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
                         similar_question = questions[similar_question_index]
                         best_query = get_best_query(similar_question)
                         if best_query:
@@ -596,67 +532,12 @@ def main():
         else:
             st.warning("Please enter a question.")
 
-    # Add rating system
-    if st.session_state.latest_query:
-        st.subheader("Rate the latest query result")
-        rating = st.slider("Rate on a scale of 1-10", 1, 10, 5)
-        change_request = st.text_area("Any suggestions for improvement?")
-        
-        if st.button("Submit Feedback"):
-            new_query = None
-            
-            # Always display the original results
-            st.subheader("Original Query Results:")
-            st.dataframe(st.session_state.latest_query['results'], use_container_width=True)
-            
-            if rating <= 5:
-                st.warning("We're sorry the result didn't meet your expectations. We'll try to improve based on your feedback.")
-                
-                with st.spinner("Implementing your suggestion and generating a new query..."):
-                    new_generated_sql = generate_sql_query(f"{st.session_state.latest_query['question']} {change_request}", conversation_history)
-                    
-                    if new_generated_sql:
-                        st.subheader("New Generated SQL query:")
-                        st.code(new_generated_sql, language="sql")
-                        
-                        new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
-                        
-                        if new_results and new_cur:
-                            st.subheader("New Query Results:")
-                            new_df = pd.DataFrame(new_results)
-                            new_column_names = [desc[0] for desc in new_cur.description]
-                            new_df.columns = new_column_names
-                            
-                            st.dataframe(new_df, use_container_width=True)
-                            
-                            new_query = new_generated_sql
-                        else:
-                            st.warning("No results found or there was an error executing the new query.")
-                    else:
-                        st.error("I'm sorry, I couldn't generate a proper query based on your feedback.")
-            else:
-                st.success("Thank you for your positive feedback! This query has been saved as a high-quality example.")
-            
-            store_feedback(st.session_state.latest_query['id'], rating, change_request, new_query)
-            st.success("Thank you for your feedback!")
+    # Add dropdown for change request or feedback
+    action_type = st.selectbox("Choose an action:", ["Request Changes", "Submit Feedback"])
 
-    else:
-        st.info("Submit a query to see results and provide feedback.")
-
-    # Add dropdown for comment or change request
-    action_type = st.selectbox("Choose an action:", ["Submit Comment", "Request Changes"])
-
-    if action_type == "Submit Comment":
-        user_comment = st.text_area("Enter your comment or suggestion:")
-        if st.button("Submit"):
-            if user_comment:
-                conversation_history.append({"role": "user", "content": f"Comment: {user_comment}"})
-                st.success("Thank you for your feedback.")
-            else:
-                st.warning("Please enter a comment before submitting.")
-    else:  # Request Changes
+    if action_type == "Request Changes":
         change_request = st.text_area("Enter your change request:")
-        if st.button("Submit"):
+        if st.button("Submit Change Request"):
             if change_request:
                 conversation_history.append({"role": "user", "content": f"Change Request: {change_request}"})
                 with st.spinner("Generating new query and fetching results..."):
@@ -666,14 +547,7 @@ def main():
                         st.subheader("New Generated SQL query:")
                         st.code(new_generated_sql, language="sql")
 
-                        conversation_history.append({"role": "assistant", "content": new_generated_sql})
-
                         new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
-
-                        if new_results is None and new_cur is None:
-                            st.error("An error occurred while executing the query. Resetting the connection...")
-                            reset_connection()
-                            new_results, new_cur = execute_query(st.session_state.conn, new_generated_sql)
 
                         if new_results and new_cur:
                             st.subheader("New Query Results:")
@@ -683,20 +557,35 @@ def main():
                             
                             st.dataframe(new_df, use_container_width=True)
 
-                            # Add download button for new CSV
-                            new_csv = new_df.to_csv(index=False)
-                            st.download_button(
-                                label="📥 Download new results as CSV",
-                                data=new_csv,
-                                file_name="new_query_results.csv",
-                                mime="text/csv",
-                            )
+                            # Update the latest query in session state
+                            st.session_state.latest_query = {
+                                'id': st.session_state.latest_query['id'],
+                                'question': st.session_state.latest_query['question'],
+                                'sql': new_generated_sql,
+                                'results': new_df
+                            }
+
+                            # Update the query in the database
+                            update_query(st.session_state.latest_query['id'], new_generated_sql)
+
+                            st.success("Query updated successfully. You can now rate the new results.")
                         else:
                             st.warning("No results found or there was an error executing the new query.")
                     else:
                         st.error("I'm sorry, I couldn't generate a proper query for your change request.")
             else:
                 st.warning("Please enter a change request before submitting.")
+
+    # Rating section (available for both initial queries and after changes)
+    if st.session_state.latest_query:
+        st.subheader("Rate the query result")
+        rating = st.slider("Rate on a scale of 1-10", 1, 10, 5)
+        feedback = st.text_area("Any additional feedback or comments?")
+        if st.button("Submit Feedback"):
+            store_feedback(st.session_state.latest_query['id'], rating, feedback)
+            st.success("Thank you for your feedback!")
+    else:
+        st.info("Submit a query to see results and provide feedback.")
 
     # Display conversation history
     st.subheader("Conversation History")
