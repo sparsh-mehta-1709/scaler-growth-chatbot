@@ -285,7 +285,7 @@ def create_feedback_table_if_not_exists():
                 """)
                 # Create feedback table
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS feedback (
+                    CREATE TABLE IF NOT EXISTS sql_llm_feedback (
                         id INT IDENTITY(1,1),
                         query_id INT NOT NULL,
                         rating INTEGER NOT NULL,
@@ -342,7 +342,7 @@ def store_feedback(query_id, rating, change_request):
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO feedback (query_id, rating, change_request)
+                    INSERT INTO sql_llm_feedback (query_id, rating, change_request)
                     VALUES (%s, %s, %s)
                 """, (query_id, rating, change_request))
                 conn.commit()
@@ -360,7 +360,7 @@ def get_similar_questions(user_input):
                 cur.execute("""
                     SELECT q.id, q.question, q.query, AVG(f.rating) as avg_rating
                     FROM queries q
-                    LEFT JOIN feedback f ON q.id = f.query_id
+                    LEFT JOIN sql_llm_feedback f ON q.id = f.query_id
                     GROUP BY q.id, q.question, q.query
                 """)
                 results = cur.fetchall()
