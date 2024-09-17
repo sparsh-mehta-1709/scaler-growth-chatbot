@@ -4,8 +4,6 @@ import psycopg2
 import re
 import os
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # Set up OpenAI API key
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
@@ -111,7 +109,6 @@ END AS fresh_flag
     case when first_payment_done=0 then 'Payment Not Done' when first_payment_done=1 then 'Payment Done' end as first_payment_done
     Use these enumns for temp.marketing_mis table 
     22. For lead level data use Lead level detail query that consists of multiple status like consumed status, lead called status, paid status, payment link sent status, test rolled out status etc.
-    23. AVOID USING OUTER JOINS
     """
 
     reference_queries = """
@@ -269,165 +266,6 @@ def get_conversation_history():
         st.session_state.conversation_history = []
     return st.session_state.conversation_history
 
-def create_feedback_table_if_not_exists():
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                # Create queries table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS sql_llm_queries (
-                        id INT IDENTITY(1,1),
-                        question VARCHAR(MAX) NOT NULL,
-                        query VARCHAR(MAX) NOT NULL,
-                        created_at TIMESTAMP DEFAULT SYSDATE,
-                        PRIMARY KEY (id)
-                    )
-                """)
-                # Create feedback table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS sql_llm_feedback (
-                        id INT IDENTITY(1,1),
-                        query_id INT NOT NULL,
-                        rating INTEGER NOT NULL,
-                        change_request VARCHAR(MAX),
-                        created_at TIMESTAMP DEFAULT SYSDATE,
-                        PRIMARY KEY (id),
-                        FOREIGN KEY (query_id) REFERENCES sql_llm_queries(id)
-                    )
-                """)
-                conn.commit()
-                st.success("Queries and Feedback tables created or already exist.")
-        except psycopg2.Error as e:
-            st.error(f"Error creating tables: {e}")
-        finally:
-            conn.close()
-
-def store_query(question, query):
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                # Create a temporary table to hold the new ID
-                cur.execute("CREATE TEMPORARY TABLE temp_id (id INT)")
-                
-                # Insert the query and capture the new ID
-                cur.execute("""
-                    INSERT INTO sql_llm_queries (question, query)
-                    VALUES (%s, %s);
-                    INSERT INTO temp_id (id)
-                    SELECT id FROM sql_llm_queries
-                    WHERE question = %s AND query = %s
-                    ORDER BY created_at DESC
-                    LIMIT 1;
-                """, (question, query, question, query))
-                
-                # Retrieve the new ID
-                cur.execute("SELECT id FROM temp_id")
-                query_id = cur.fetchone()[0]
-                
-                # Clean up the temporary table
-                cur.execute("DROP TABLE temp_id")
-                
-                conn.commit()
-            return query_id
-        except psycopg2.Error as e:
-            st.error(f"Error storing query: {e}")
-        finally:
-            conn.close()
-    return None
-
-def store_feedback(query_id, rating, change_request, new_query=None):
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO sql_llm_feedback (query_id, rating, change_request)
-                    VALUES (%s, %s, %s)
-                """, (query_id, rating, change_request))
-                
-                if new_query:
-                    cur.execute("""
-                        UPDATE sql_llm_queries
-                        SET query = %s
-                        WHERE id = %s
-                    """, (new_query, query_id))
-                
-                conn.commit()
-            st.success("Feedback stored successfully.")
-        except psycopg2.Error as e:
-            st.error(f"Error storing feedback: {e}")
-        finally:
-            conn.close()
-
-def update_query(query_id, new_sql):
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE sql_llm_queries
-                    SET query = %s
-                    WHERE id = %s
-                """, (new_sql, query_id))
-                conn.commit()
-            st.success("Query updated successfully.")
-        except psycopg2.Error as e:
-            st.error(f"Error updating query: {e}")
-        finally:
-            conn.close()
-
-def get_best_query(question):
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT q.id, q.question, q.query, AVG(f.rating) as avg_rating
-                    FROM sql_llm_queries q
-                    LEFT JOIN sql_llm_feedback f ON q.id = f.query_id
-                    WHERE q.question = %s
-                    GROUP BY q.id, q.question, q.query
-                    ORDER BY avg_rating DESC
-                    LIMIT 1
-                """, (question,))
-                result = cur.fetchone()
-                if result:
-                    return result
-        except psycopg2.Error as e:
-            st.error(f"Error fetching best query: {e}")
-        finally:
-            conn.close()
-    return None
-
-def get_similar_questions(user_input):
-    conn = connect_to_db()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT question
-                    FROM sql_llm_queries
-                """)
-                questions = [row[0] for row in cur.fetchall()]
-                
-                if questions:
-                    vectorizer = TfidfVectorizer()
-                    tfidf_matrix = vectorizer.fit_transform(questions + [user_input])
-                    cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
-                    similar_question_index = cosine_similarities.argmax()
-                    if cosine_similarities[similar_question_index] > 0.8:  # Threshold for similarity
-                        similar_question = questions[similar_question_index]
-                        best_query = get_best_query(similar_question)
-                        if best_query:
-                            return best_query
-        except psycopg2.Error as e:
-            st.error(f"Error fetching similar questions: {e}")
-        finally:
-            conn.close()
-    return None
-
 def main():
     # Set page configuration
     st.set_page_config(page_title="Scaler Academy Database Chatbot", page_icon="🤖", layout="wide")
@@ -471,60 +309,54 @@ def main():
 
     conversation_history = get_conversation_history()
 
-    # Create feedback table if it doesn't exist
-    create_feedback_table_if_not_exists()
-
-    # Initialize session state variables if they don't exist
-    if 'latest_query' not in st.session_state:
-        st.session_state.latest_query = None
-
     # User input
     user_input = st.text_input("Enter your question:", placeholder="e.g., Show me the top 5 mentees by attendance")
+
+    if 'query_results' not in st.session_state:
+        st.session_state.query_results = []
 
     if st.button("Submit", key="submit"):
         if user_input:
             with st.spinner("Generating query and fetching results..."):
-                similar_question = get_similar_questions(user_input)
-                if similar_question:
-                    query_id, question, generated_sql, avg_rating = similar_question
-                    print("Query source: Existing similar question")
-                    
-                    st.info("A similar question has been asked before. Using the highest-rated answer:")
-                    st.subheader("Similar question:")
-                    st.write(question)
-                    st.subheader("SQL query:")
-                    st.code(generated_sql, language="sql")
-                    st.subheader("Average Rating:")
-                    if avg_rating is not None:
-                        st.write(f"{avg_rating:.2f}/10")
-                    else:
-                        st.write("No ratings yet")
-                else:
-                    generated_sql = generate_sql_query(user_input, conversation_history)
-                    print("Query source: LLM-generated")
-                    query_id = store_query(user_input, generated_sql)
+                # Print user input
+                st.subheader("Your question:")
+                st.info(user_input)
+
+                # Add user input to conversation history
+                conversation_history.append({"role": "user", "content": user_input})
+
+                generated_sql = generate_sql_query(user_input, conversation_history)
 
                 if generated_sql:
-                    if not similar_question:
-                        st.subheader("Generated SQL query:")
-                        st.code(generated_sql, language="sql")
+                    st.subheader("Generated SQL query:")
+                    st.code(generated_sql, language="sql")
 
-                    # Execute query and display results
+                    # Add generated SQL to conversation history
+                    conversation_history.append({"role": "assistant", "content": generated_sql})
+
                     results, cur = execute_query(st.session_state.conn, generated_sql)
+
+                    if results is None and cur is None:
+                        st.error("An error occurred while executing the query. Resetting the connection...")
+                        reset_connection()
+                        results, cur = execute_query(st.session_state.conn, generated_sql)
+
                     if results and cur:
                         st.subheader("Query results:")
                         df = pd.DataFrame(results)
+                        
+                        # Get column names from the cursor description
                         column_names = [desc[0] for desc in cur.description]
+                        
+                        # Assign column names to the dataframe
                         df.columns = column_names
-                        st.dataframe(df, use_container_width=True)
-
-                        # Store the latest query information
-                        st.session_state.latest_query = {
-                            'id': query_id,
-                            'question': user_input,
-                            'sql': generated_sql,
-                            'results': df
-                        }
+                        
+                        # Add new results to the session state
+                        st.session_state.query_results.append({
+                            "question": user_input,
+                            "query": generated_sql,
+                            "dataframe": df
+                        })
                     else:
                         st.warning("No results found or there was an error executing the query.")
                 else:
@@ -532,10 +364,34 @@ def main():
         else:
             st.warning("Please enter a question.")
 
-    # Add dropdown for change request or feedback
-    action_type = st.selectbox("Choose an action:", ["Request Changes", "Submit Feedback"])
+    # Display all results in dropdowns
+    if st.session_state.query_results:
+        st.subheader("All Query Results")
+        for i, result in enumerate(reversed(st.session_state.query_results), 1):
+            with st.expander(f"Result {i}: {result['question']}", expanded=(i == 1)):
+                st.code(result['query'], language="sql")
+                st.dataframe(result['dataframe'], use_container_width=True)
+                
+                csv = result['dataframe'].to_csv(index=False)
+                st.download_button(
+                    label="📥 Download results as CSV",
+                    data=csv,
+                    file_name=f"query_results_{i}.csv",
+                    mime="text/csv",
+                )
 
-    if action_type == "Request Changes":
+    # Add dropdown for comment or change request
+    action_type = st.selectbox("Choose an action:", ["Submit Comment", "Request Changes"])
+
+    if action_type == "Submit Comment":
+        user_comment = st.text_area("Enter your comment or suggestion:")
+        if st.button("Submit"):
+            if user_comment:
+                conversation_history.append({"role": "user", "content": f"Comment: {user_comment}"})
+                st.success("Thank you for your feedback.")
+            else:
+                st.warning("Please enter a comment before submitting.")
+    else:  # Request Changes
         change_request = st.text_area("Enter your change request:")
         if st.button("Submit Change Request"):
             if change_request:
@@ -557,35 +413,28 @@ def main():
                             
                             st.dataframe(new_df, use_container_width=True)
 
-                            # Update the latest query in session state
-                            st.session_state.latest_query = {
-                                'id': st.session_state.latest_query['id'],
-                                'question': st.session_state.latest_query['question'],
-                                'sql': new_generated_sql,
-                                'results': new_df
-                            }
+                            # Check if latest_query exists before updating
+                            if 'latest_query' in st.session_state and st.session_state.latest_query:
+                                # Update the latest query in session state
+                                st.session_state.latest_query = {
+                                    'id': st.session_state.latest_query['id'],
+                                    'question': st.session_state.latest_query['question'],
+                                    'sql': new_generated_sql,
+                                    'results': new_df
+                                }
 
-                            # Update the query in the database
-                            update_query(st.session_state.latest_query['id'], new_generated_sql)
+                                # Update the query in the database
+                                update_query(st.session_state.latest_query['id'], new_generated_sql)
 
-                            st.success("Query updated successfully. You can now rate the new results.")
+                                st.success("Query updated successfully. You can now rate the new results.")
+                            else:
+                                st.warning("No previous query found. Please submit a new query first.")
                         else:
                             st.warning("No results found or there was an error executing the new query.")
                     else:
                         st.error("I'm sorry, I couldn't generate a proper query for your change request.")
             else:
                 st.warning("Please enter a change request before submitting.")
-
-    # Rating section (available for both initial queries and after changes)
-    if st.session_state.latest_query:
-        st.subheader("Rate the query result")
-        rating = st.slider("Rate on a scale of 1-10", 1, 10, 5)
-        feedback = st.text_area("Any additional feedback or comments?")
-        if st.button("Submit Feedback"):
-            store_feedback(st.session_state.latest_query['id'], rating, feedback)
-            st.success("Thank you for your feedback!")
-    else:
-        st.info("Submit a query to see results and provide feedback.")
 
     # Display conversation history
     st.subheader("Conversation History")
